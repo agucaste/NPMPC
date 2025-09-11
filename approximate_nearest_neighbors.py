@@ -36,6 +36,7 @@ def test_faiss(seed: int):
     # print(I[:5])                   # neighbors of the 5 first queries
     # print(f"Distances to the first five queries")
     # print(D[:5])                   # distances of the 5 first queries
+    
     return creation_time, search_time
 
 def test_kdtree(seed: int):
