@@ -38,14 +38,15 @@ class DataCollector:
             x_hist.append(x)
             dx_hist.append(dx)
             u_hist.append(u)
+            
+        
 
             x = self.simulator.make_step(u)
-        
         self.data['x'].append(np.array(x_hist).squeeze())
         self.data['dx'].append(np.array(dx_hist).squeeze())
         self.data['u'].append(np.array(u_hist).squeeze())
 
-    def collect_data(self, num_trajectories: int, lb: np.ndarray | float, ub: np.ndarray | float, method: str = 'random'):
+    def collect_data(self, num_trajectories: int, lb: np.ndarray | float, ub: np.ndarray | float, method: str = 'random') -> dict[str, list]:
         """
         Collect data by running trajectories from random initial conditions.
         Args:
@@ -86,34 +87,14 @@ class DataCollector:
 if __name__ == "__main__":
     model, mpc, simulator = constructor('pendulum')
     collector = DataCollector(model, mpc, simulator)
-
-
-
-    data = collector.collect_data(num_trajectories=7**2, lb=-2, ub=2, method='grid')
-    print(data['x'])
+    data = collector.collect_data(num_trajectories=3**2, lb=-2, ub=2, method='grid')
     
-
-    # X0 = np.meshgrid(
-    #     np.linspace(-2, 2, 5),
-    #     np.linspace(-2, 2, 5)
-    # )
-    # X0 = np.c_[tuple(X.ravel() for X in X0)]
-    # print(f"X0 shape: {X0.shape}")
-    # T = X0.shape[0]
-    # T = 10
-    # for t in range(T):
-    #     print(f' collecting trajectory {t+1}/{T}')
-    #     x0 = X0[t].reshape(-1,1)
-    #     print(f"x0 = {x0}")
-    #     collector.run_trajectory(x0)
-    
-    # data = collector.get_data()
-
     print(f"Collected data keys: {list(data.keys())}")
     for key, value in data.items():
         print(f"{key}: shape {np.array(value).shape}")
-    x = np.array(data['x'])
 
+    x = np.array(data['x'])
+    
     import matplotlib.pyplot as plt
 
     # x has shape (T, steps, state_dim)
