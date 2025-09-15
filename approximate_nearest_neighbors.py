@@ -21,22 +21,15 @@ def test_faiss(seed: int):
 
     start_time = time.time()
     index = fa.IndexFlatL2(d)   # build the index
-    index.add(xb)               # add vectors to the index
+    index.add(xb)               # type: ignore # add vectors to the index
     creation_time = time.time() - start_time
 
     k = 3                       # we want to see 3 nearest neighbors
 
     start_time = time.time()
-    D, I = index.search(xq, k)  # actual search
+    D, I = index.search(xq, k)  # type: ignore # actual search
     search_time = time.time() - start_time
 
-    # print(f"FAISS - Index creation time: {creation_time:.4f} seconds")
-    # print(f"FAISS - Search time: {search_time:.4f} seconds")
-    # print(f"Neighbors of the first five queries:")
-    # print(I[:5])                   # neighbors of the 5 first queries
-    # print(f"Distances to the first five queries")
-    # print(D[:5])                   # distances of the 5 first queries
-    
     return creation_time, search_time
 
 def test_kdtree(seed: int):

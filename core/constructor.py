@@ -53,7 +53,7 @@ def constructor(name: str) -> Tuple[Model, MPC, Simulator]:
             'n_horizon': 20,
             't_step': 0.05,
             'n_robust': 0,
-            'store_full_solution': True,
+            'store_full_solution': False,
             'nlpsol_opts':{
                 "ipopt.print_level": 1,  # 0-> no output. 1 -> errors only. 2-> default.
                 "ipopt.sb": "yes",
@@ -85,7 +85,7 @@ def constructor(name: str) -> Tuple[Model, MPC, Simulator]:
 
         # a > 0 means unstable system
         a = .2
-        lambd = 10.
+        lambd = 1.0
         # Dynamics
         model.set_rhs('p', a*p + q)
         model.set_rhs('q', u)
@@ -94,13 +94,18 @@ def constructor(name: str) -> Tuple[Model, MPC, Simulator]:
         # MPC controller
         mpc = MPC(model)
         setup_mpc = {
-            'n_horizon': 20,
-            't_step': 0.05,
+            'n_horizon': 100,
+            't_step': 0.01,
             'n_robust': 0,
             'store_full_solution': True,
+            'nlpsol_opts':{
+                "ipopt.print_level": 1,  # 0-> no output. 1 -> errors only. 2-> default.
+                "ipopt.sb": "yes",
+                "print_time": 0,
+                }        
         }
 
-        lterm = u ** 2 + lambd 
+        lterm = 10 * u ** 2 + lambd 
         mpc.set_objective(lterm=lterm, mterm=0*p)
         mpc.set_param(**setup_mpc)
 

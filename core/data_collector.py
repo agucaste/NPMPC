@@ -1,6 +1,9 @@
+import numpy as np
 from constructor import constructor
 
-import numpy as np
+from typing import Tuple
+from numpy.typing import NDArray
+from tqdm import tqdm
 
 class DataCollector:
     """
@@ -13,6 +16,7 @@ class DataCollector:
         self.simulator = simulator
 
         self.steps = 100  # problem horizon.
+        assert mpc.settings.n_horizon <= self.steps, "MPC horizon must be less than or equal to simulation steps."
         
         self.data = {
             'x': [],  # states
@@ -21,7 +25,7 @@ class DataCollector:
         }
         assert mpc.settings.n_horizon <= self.steps
 
-    def run_trajectory(self, x0: np.ndarray):
+    def run_trajectory(self, x0: np.ndarray) -> Tuple[NDArray, NDArray, NDArray]:
         self.simulator.x0 = x0
         self.mpc.x0 = x0
         self.mpc.set_initial_guess()
@@ -34,17 +38,27 @@ class DataCollector:
         for k in range(self.steps):
             u = self.mpc.make_step(x)
             dx = self.get_velocity(x, u)
-
+            # Track x, u and dx
             x_hist.append(x)
             dx_hist.append(dx)
             u_hist.append(u)
-            
-        
-
+            # Simulate
             x = self.simulator.make_step(u)
-        self.data['x'].append(np.array(x_hist).squeeze())
-        self.data['dx'].append(np.array(dx_hist).squeeze())
-        self.data['u'].append(np.array(u_hist).squeeze())
+
+            print(self.simulator.data['_x'])
+            print(f' has length {len(self.mpc.data["_x"])}')
+            raise ValueError
+        
+        # Convert to arrays
+        x_hist = np.array(x_hist).squeeze()
+        dx_hist = np.array(dx_hist).squeeze()
+        u_hist = np.array(u_hist).squeeze()
+        # Store in memory
+        self.data['x'].append(x_hist)
+        self.data['dx'].append(dx_hist)
+        self.data['u'].append(u_hist)
+
+        return x_hist, u_hist, dx_hist
 
     def collect_data(self, num_trajectories: int, lb: np.ndarray | float, ub: np.ndarray | float, method: str = 'random') -> dict[str, list]:
         """
@@ -71,7 +85,7 @@ class DataCollector:
             grid = np.meshgrid(*axs)
             X0 = np.c_[tuple(g.ravel() for g in grid)]
                         
-        for t in range(num_trajectories):
+        for t in tqdm(range(num_trajectories), desc="Collecting trajectories"):
             x0 = X0[t].reshape(-1,1)
             self.run_trajectory(x0)
 

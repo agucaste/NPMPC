@@ -1,0 +1,29 @@
+model:
+  # "True" horizon for the problem
+  N: 100
+
+mpc:
+  # Predictive horizon
+  n_horizon: 20
+  # Timestep (in seconds) for cont. time model.
+  t_step: 0.05  
+  # Robust horizon
+  n_robust: 0
+  store_full_solution: True
+  # Optimization solver config
+  nlpsol_opts:
+    ipopt:
+      print_level: 1
+      sb: 'yes'
+      print_time: 0
+
+
+# -------------------
+# Custom environments
+# -------------------
+constrained_lqr:
+
+min_time:
+
+pendulum:
+

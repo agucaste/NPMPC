@@ -1,9 +1,11 @@
 import numpy as np
-from numpy.typing import NDArray
 import faiss as fa
 
 from constructor import constructor
 from data_collector import DataCollector
+
+from typing import Tuple
+from numpy.typing import NDArray
 
 class NNRegressor(object):
     x: fa.IndexFlat  # the state data
@@ -37,7 +39,7 @@ class NNRegressor(object):
         print(f'how many us? {len(self.u)}')
         print(f'how many x? {self.x.ntotal}')  # type: ignore
     
-    def query(self, xq: np.ndarray, k: int = 1) -> np.ndarray:
+    def query(self, xq: np.ndarray, k: int = 1) -> Tuple[NDArray, NDArray]:
         """
         Query the nearest neighbor.
         Args:
@@ -47,7 +49,7 @@ class NNRegressor(object):
             i: index corresponding to the nearest neighbor, shape (k, )
         """
         D, I = self.x.search(xq.T, k)  # type: ignore # actual search
-        return I
+        return D, I
         
     def act(self, xq: np.ndarray, k: int = 1) -> np.ndarray:
         """
@@ -69,12 +71,17 @@ class NNRegressor(object):
 
 
 if __name__ == "__main__":
-    model, mpc, simulator = constructor('pendulum')
+    # Define the system and data collector
+    model, mpc, simulator = constructor('min_time')
     collector = DataCollector(model, mpc, simulator)
+    # Collect data uniformly.
     data = collector.collect_data(num_trajectories=3**2, lb=-2, ub=2, method='grid')
-
+    # Define the policy
     nn = NNRegressor(nx=model.x.shape[0], nu=model.u.shape[0])
     nn.add_data(data['x'], data['u'])
+
+    # x, u, _ = collector.run_trajectory(np.array([[10.0], [-10.0]]))
+    # nn.add_data(x, u)
 
     x0 = np.random.normal(loc=0.0, scale=1.0, size=model.x.shape)
 
@@ -91,7 +98,7 @@ if __name__ == "__main__":
 
         x = x0
         for k in range(collector.steps):
-            u = nn.act(x)
+            u = nn.act(x, k=1)
             # dx = self.get_velocity(x, u)
 
             x_hist.append(x)
@@ -113,14 +120,14 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
     # x has shape (T, steps, state_dim)
-    # Plot each row (trajectory) in the same plot
-    for traj in trajectories:
-        plt.plot(traj[:, 0], traj[:, 1], 'o-', markersize=5, alpha=0.5)  
+    # Plot each row (trajectory) in the same plot    
     for traj in collector.data['x']:
         if traj is collector.data['x'][0]:
             plt.plot(traj[:, 0], traj[:, 1], 'k', marker='x', linewidth=.5, alpha=0.3, label='Demonstrations')
         else:
             plt.plot(traj[:, 0], traj[:, 1], 'k', marker='x', linewidth=.5, alpha=0.3)
+    for traj in trajectories:
+        plt.plot(traj[:, 0], traj[:, 1], 'o-', markersize=5, alpha=0.5, label='NN policy' if traj is trajectories[0] else None)  
     plt.xlabel(r'$p$')
     plt.ylabel(r'$q$')
     plt.title('Trajectories (NN)')
