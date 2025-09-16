@@ -5,9 +5,11 @@ from do_mpc.model import Model
 from do_mpc.controller import MPC
 from do_mpc.simulator import Simulator
 
+from config import Config, get_default_kwargs_yaml
+
 from typing import Tuple
 
-valid_environments = ['pendulum', 'min_time']
+valid_environments = ['pendulum', 'min_time', 'constrained_lqr']
 
 def constructor(name: str) -> Tuple[Model, MPC, Simulator]:
     """
@@ -26,6 +28,10 @@ def constructor(name: str) -> Tuple[Model, MPC, Simulator]:
 
     assert name in valid_environments, f"Environment '{name}' not implemented."
     
+    config = get_default_kwargs_yaml(algo='', env_id=name)
+    print(f"Using config: {config}")    
+    print(f'mpc uses config {config.mpc.todict()}')
+    
     # Create a continuous time model.
     model = Model('continuous')
     if name == 'pendulum':
@@ -37,9 +43,7 @@ def constructor(name: str) -> Tuple[Model, MPC, Simulator]:
         u = model.set_variable('_u', 'u')
 
         # Parameters
-        g = 9.81
-        l = 1.0
-        m = 1.0
+        g, m, l = config.g, config.m, config.l
 
         # Dynamics
         model.set_rhs('theta', omega)
@@ -49,19 +53,10 @@ def constructor(name: str) -> Tuple[Model, MPC, Simulator]:
 
         # MPC controller
         mpc = MPC(model)
-        setup_mpc = {
-            'n_horizon': 20,
-            't_step': 0.05,
-            'n_robust': 0,
-            'store_full_solution': False,
-            'nlpsol_opts':{
-                "ipopt.print_level": 1,  # 0-> no output. 1 -> errors only. 2-> default.
-                "ipopt.sb": "yes",
-                "print_time": 0,
-                }
-        }
-        mpc.set_param(**setup_mpc)
-
+        print(f'config mpc is')
+        print(config.mpc)
+        mpc.set_param(**config.mpc.todict())
+        
         # Cost function: swing up to theta = 0
         mterm = (theta)**2 + 0.1*omega**2   # terminal cost
         lterm = (theta)**2 + 0.1*omega**2 + 0.01*u**2  # stage cost
@@ -75,7 +70,7 @@ def constructor(name: str) -> Tuple[Model, MPC, Simulator]:
 
         # Simulator for closed-loop execution
         simulator = Simulator(model)
-        simulator.set_param(t_step=setup_mpc['t_step'])
+        simulator.set_param(t_step=config.mpc.t_step)
         simulator.setup()
     
     elif name == 'min_time':        
@@ -93,21 +88,22 @@ def constructor(name: str) -> Tuple[Model, MPC, Simulator]:
 
         # MPC controller
         mpc = MPC(model)
-        setup_mpc = {
-            'n_horizon': 100,
-            't_step': 0.01,
-            'n_robust': 0,
-            'store_full_solution': True,
-            'nlpsol_opts':{
-                "ipopt.print_level": 1,  # 0-> no output. 1 -> errors only. 2-> default.
-                "ipopt.sb": "yes",
-                "print_time": 0,
-                }        
-        }
+        # setup_mpc = {
+        #     'n_horizon': 100,
+        #     't_step': 0.01,
+        #     'n_robust': 0,
+        #     'store_full_solution': True,
+        #     'nlpsol_opts':{
+        #         "ipopt.print_level": 1,  # 0-> no output. 1 -> errors only. 2-> default.
+        #         "ipopt.sb": "yes",
+        #         "print_time": 0,
+        #         }        
+        # }
 
         lterm = 10 * u ** 2 + lambd 
         mpc.set_objective(lterm=lterm, mterm=0*p)
-        mpc.set_param(**setup_mpc)
+        mpc.set_param(**config.mpc.todict())
+        # mpc.set_param(**setup_mpc)
 
         # Control constraints: -1 <= u <= 1
         mpc.bounds['lower','_u','u'] = -1.
@@ -123,8 +119,11 @@ def constructor(name: str) -> Tuple[Model, MPC, Simulator]:
 
         # Simulator for closed-loop execution
         simulator = Simulator(model)
-        simulator.set_param(t_step=setup_mpc['t_step'])
+        simulator.set_param(t_step=config.mpc.t_step)
         simulator.setup()
+    
+    elif name == 'constrained_lqr':
+        raise NotImplementedError("Environment 'constrained_lqr' not implemented yet.")
 
     return model, mpc, simulator
 
@@ -155,7 +154,6 @@ if __name__ == "__main__":
             u_hist.append(u0)
 
             print(model.x)
-            raise ValueError
             
 
         # Convert to arrays for plotting

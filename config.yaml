@@ -1,22 +1,22 @@
-model:
-  # "True" horizon for the problem
-  N: 100
-
-mpc:
-  # Predictive horizon
-  n_horizon: 20
-  # Timestep (in seconds) for cont. time model.
-  t_step: 0.05  
-  # Robust horizon
-  n_robust: 0
-  store_full_solution: True
-  # Optimization solver config
-  nlpsol_opts:
-    ipopt:
-      print_level: 1
-      sb: 'yes'
+defaults:
+  model:
+    # "True" horizon for the problem
+    N: 100
+  mpc:
+    # Predictive horizon
+    n_horizon: 20
+    # Timestep (in seconds) for cont. time model.
+    t_step: 0.05  
+    # Robust horizon
+    n_robust: 0
+    store_full_solution: False
+    # Optimization solver config
+    nlpsol_opts:
+      ipopt:
+      # 0 -> no output. 1 -> errors only. 2 -> default.
+        print_level: 1
+        sb: 'yes'
       print_time: 0
-
 
 # -------------------
 # Custom environments
@@ -24,6 +24,19 @@ mpc:
 constrained_lqr:
 
 min_time:
+# Minimum (continuous) time problem:
+#  dp = a*p + q
+#  dq = u
+#  where a>0.
+  N: 200
+  mpc:
+    n_horizon: 100
+    t_step: 0.05
+    store_full_solution: True
 
 pendulum:
+  g: 9.82
+  m: 1.0
+  l: 1.0
+
 

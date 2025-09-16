@@ -2,7 +2,7 @@ import numpy as np
 import faiss as fa
 
 from constructor import constructor
-from data_collector import DataCollector
+from config import get_default_kwargs_yaml
 
 from typing import Tuple
 from numpy.typing import NDArray
@@ -16,7 +16,21 @@ class NNRegressor(object):
         self.u = []
 
         self.nx = nx  # state dimension
-        self.nu = nu
+        self.nu = nu  # control dimension
+
+        self._k: int = 1  # number of neighbors
+    
+    def set_k(self, k: int):
+        """
+        Sets the number of neighbors.
+        """
+        assert isinstance(k, int) and k >= 1, "k must be a positive integer."
+        self._k = k
+        return
+    
+    @property
+    def k(self) -> int:
+        return self._k
 
     def add_data(self, x: list | np.ndarray, u: list | np.ndarray):
         """
@@ -39,40 +53,51 @@ class NNRegressor(object):
         print(f'how many us? {len(self.u)}')
         print(f'how many x? {self.x.ntotal}')  # type: ignore
     
-    def query(self, xq: np.ndarray, k: int = 1) -> Tuple[NDArray, NDArray]:
+    def query(self, xq: np.ndarray) -> Tuple[NDArray, NDArray]:
         """
         Query the nearest neighbor.
         Args:
             xq: query states, shape (N, n) or (n, ), N is number of queries, n is state dimension.
-            k: number of nearest neighbors to return.
         Returns:
             i: index corresponding to the nearest neighbor, shape (k, )
         """
-        D, I = self.x.search(xq.T, k)  # type: ignore # actual search
+        D, I = self.x.search(xq.T, self._k)  # type: ignore # actual search
         return D, I
         
-    def act(self, xq: np.ndarray, k: int = 1) -> np.ndarray:
+    def make_step(self, xq: np.ndarray, w: str = 'equal') -> np.ndarray:
         """
-        Act method for compatibility with policy interface.
+        Decides an action based on the state. For k=1, returns the control of the nearest neighbor.
+        For k>1, returns a combination of the k-nearest controls, based on the weighting method
         Args:
             xq: query states, shape (N, n) or (n, ), N is number of queries, n is state dimension.
-            k: number of nearest neighbors to return.
+            w: weighting method, 'equal' or 'distance'.
         Returns:
             u: controls corresponding to the nearest neighbors, shape (N, m) or (m, ) if k=1.
-        """        
-        I = self.query(xq, k=k).squeeze()        
-        if k == 1:
+        """ 
+        D, I = self.query(xq)       
+        I = I.squeeze()        
+        if self._k == 1:
             return self.u[I]
         else:
-            return np.mean(np.array([self.u[j] for j in I]), axis=0)
-
-        return self.query(xq, k)
+            if w == 'distance':
+                D = D.squeeze()
+                D_inv = 1 / (D + 1e-6)  # avoid division by zero            
+                return np.array([self.u[j] for j in I]) @ D_inv / np.sum(D_inv)
+            elif w == 'equal':
+                return np.mean(np.array([self.u[j] for j in I]), axis=0)
+            else:
+                raise ValueError(f"Unknown weighting method: '{w}'")
+            
     
 
 
 if __name__ == "__main__":
+    # Import DataCollector here to avoid circular import when module is imported
+    from data_collector import DataCollector, run_trajectory
+
+    env = 'min_time'
     # Define the system and data collector
-    model, mpc, simulator = constructor('min_time')
+    model, mpc, simulator = constructor(env)
     collector = DataCollector(model, mpc, simulator)
     # Collect data uniformly.
     data = collector.collect_data(num_trajectories=3**2, lb=-2, ub=2, method='grid')
@@ -86,51 +111,38 @@ if __name__ == "__main__":
     x0 = np.random.normal(loc=0.0, scale=1.0, size=model.x.shape)
 
     for k in [1,3,5]:
-        print(f"Control action for k={k}: {nn.act(x0, k=k)}, of shape {nn.act(x0, k=k).shape}")
-
-
-    def run_trajectory(self, x0: np.ndarray):
-        self.simulator.x0 = x0
-
-        x_hist = []
-        dx_hist = []
-        u_hist = []
-
-        x = x0
-        for k in range(collector.steps):
-            u = nn.act(x, k=1)
-            # dx = self.get_velocity(x, u)
-
-            x_hist.append(x)
-            # dx_hist.append(dx)
-            u_hist.append(u)
-
-            x = self.simulator.make_step(u)
-        return np.array(x_hist).squeeze()
-
+        nn.set_k(k)
+        a = nn.make_step(x0)
+        print(f"Control action for k={k}: {a}, of shape {a.shape}")    
+    nn.set_k(1)
+    
+    config = get_default_kwargs_yaml(algo='', env_id=env)
 
     trajectories = []
     num_trajectories = 10
     lb, ub = -3, 3
     X0 = np.random.uniform(lb, ub, size=(num_trajectories, nn.nx, 1))            
     for x0 in X0:            
-        traj = run_trajectory(collector, x0)
-        trajectories.append(traj)
+        x, u = run_trajectory(x0=x0, steps=config['N'] * 5, simulator=simulator, controller=nn)
+        trajectories.append(x)
     
     import matplotlib.pyplot as plt
 
     # x has shape (T, steps, state_dim)
     # Plot each row (trajectory) in the same plot    
     for traj in collector.data['x']:
+        # print(f"traj shape: {traj.shape}")
+        # print(f"traj is {traj}")
         if traj is collector.data['x'][0]:
             plt.plot(traj[:, 0], traj[:, 1], 'k', marker='x', linewidth=.5, alpha=0.3, label='Demonstrations')
         else:
             plt.plot(traj[:, 0], traj[:, 1], 'k', marker='x', linewidth=.5, alpha=0.3)
     for traj in trajectories:
+        
         plt.plot(traj[:, 0], traj[:, 1], 'o-', markersize=5, alpha=0.5, label='NN policy' if traj is trajectories[0] else None)  
     plt.xlabel(r'$p$')
     plt.ylabel(r'$q$')
-    plt.title('Trajectories (NN)')
+    plt.title(f'Trajectories for {env} problem')
     plt.legend()
     plt.savefig("example_trajectories_nn.png", dpi=300)
     plt.show()
