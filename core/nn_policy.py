@@ -10,7 +10,9 @@ from numpy.typing import NDArray
 class NNRegressor(object):
     x: fa.IndexFlat  # the state data
     u: list[NDArray] # the controls
-    
+    nx: int  # state dimension
+    nu: int  # control dimension
+
     def __init__(self, nx: int, nu: int):
         self.x = fa.IndexFlatL2(nx)  # the state data, shape (N, nx)
         self.u = []
@@ -31,6 +33,10 @@ class NNRegressor(object):
     @property
     def k(self) -> int:
         return self._k
+    
+    @property
+    def size(self) -> int:
+        return self.x.ntotal  # type: ignore
 
     def add_data(self, x: list | np.ndarray, u: list | np.ndarray):
         """
