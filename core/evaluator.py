@@ -8,9 +8,9 @@ from do_mpc.simulator import Simulator
 
 from nn_policy import NNRegressor
 from config import Config
-from data_collector import run_trajectory
+from data_collector import run_trajectory, get_trajectory_cost
 
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 from numpy.typing import NDArray
 import warnings
 
@@ -45,97 +45,199 @@ class Sampler:
     
 
 class Evaluator():
-    def __init__(self) -> None:
+    def __init__(self, mpc: MPC) -> None:
         self.stats: dict[str, Any] = {}
+        self.mpc: MPC = mpc
+        self.steps = None  # type: ignore
         pass
 
     def evaluate(self,
                  model: Model,
-                 controller: MPC | NNRegressor,
+                 controller: Optional[NNRegressor],
                  simulator: Simulator,
                  cfgs: Config,
                  sampler: Sampler,
                  M: int = 100,) -> None:
         
-        
+        if controller is None:
+            controller = self.mpc
         key = 'MPC' if isinstance(controller, MPC) else f'NN_{controller._k}_D{controller.size}'        
-        self.stats[key] = {'t': [], 'x': [], 'u': []}        
+        self.stats[key] = {'t': [], 'x': [], 'u': [], 'c': []}        
         if key != 'MPC':
             # Get the size of the dataset
             self.stats[key].update({'size': controller.size})
         
 
-        steps = cfgs.N        
+        self.steps = cfgs.N 
         for _ in trange(M, desc=f"Evaluating {key}"):
             x0 = sampler.sample()
             start_time = time()
-            x, u = run_trajectory(x0, steps, simulator, controller)
+            x, u = run_trajectory(x0, self.steps, simulator, controller)
             t = time() - start_time
+            c = get_trajectory_cost(mpc, x, u)
+
+            # print(f'added cost is {c}')
 
             self.stats[key]['t'].append(t)
             self.stats[key]['x'].append(x)
             self.stats[key]['u'].append(u)
+            self.stats[key]['c'].append(c)
+
     
-    def plot_times(self, filename: str = 'times.pdf') -> None:
+    def plot_histograms(self, filename: str = 'times.pdf') -> None:
         """
         Makes a histogram of the times taken for each controller.
         """
         plt.style.use('bmh')
-        plt.figure()
-        plt.xscale('log')
-        for key, stat in self.stats.items():
-            times = np.array(stat['t'])
+        fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+        axs[0].set_xscale('log')
+        axs[1].set_xscale('log')        
+        for i, (key, stat) in enumerate(self.stats.items()):
+            # Plotting trajectory times
+            times = np.array(stat['t'])            
             bins = np.logspace(np.log10(times.min()), np.log10(times.max()), int(np.sqrt(len(times))))
             m = np.mean(times)
             label = key + f' (mean={m:.4f}s)'
-            plt.hist(times, bins=bins, alpha=0.6, edgecolor='black', label=label)
+            axs[0].hist(times, bins=bins, alpha=0.6, edgecolor='black', label=label)
+            axs[0].set_yscale('log')
+            # axs[0].set_xticks([1])
+            # axs[0].set_xticklabels([label])
 
-        plt.xlabel('Time (s)')
-        plt.ylabel('Occurrences')
-        plt.legend()
-        title = "Time taken to run one trajectory"
-        plt.title(title)
+            # Plotting trajectory costs
+            costs = np.array(stat['c'])
+            # print(f'costs is: {costs}')
+            bins = np.logspace(np.log10(costs.min()), np.log10(costs.max()), int(np.sqrt(len(costs))))
+            m = np.mean(costs)
+            label = key + f' (mean={m:.4f}s)'
+            axs[1].hist(costs, bins=bins, alpha=0.6, edgecolor='black', label=label)
+
+        for ax in axs:
+            ax.legend()
+            ax.set_ylabel('Occurrences')
+        axs[0].set_xlabel('Time (s)')
+        axs[0].set_title("Time taken to run one trajectory")
+        axs[1].set_title("Cost-to-go ")
+        axs[1].set_xlabel("Cost")
         plt.savefig(filename)
-        plt.show()
+        # plt.show()
+
+    def plot_boxplots(self, filename: str = 'times.pdf') -> None:
+        """
+        Makes a histogram of the times taken for each controller.
+        """
+        plt.style.use('bmh')
+        fig, axs = plt.subplots(1, 2, figsize=(16, 5))
+        
+        n = len(self.stats)
+        
+        # TODO: Make MPC's cost
+        for k, v in self.stats.items():
+            if k == 'MPC':
+                v['gap'] = v['c']
+            else:
+                v['gap'] = [J - self.stats['MPC']['c'][i] for i, J in enumerate(v['c']) ]
+        print(f"MPC gaps are:")
+        print(self.stats['MPC']['gap'])
+        what_to_plot = ['t', 'gap']
+        for i, ax in enumerate(axs):
+        
+            bp = ax.boxplot([self.stats[key][what_to_plot[i]] for key in self.stats.keys()],
+                            patch_artist=True,
+                            positions=np.arange(n), widths=0.6,
+                            boxprops=dict(color='k'),
+                            medianprops=dict(color='k', linewidth=2),
+            )
+            # assign colors one by one
+            for patch, color in zip(bp['boxes'], ['C' + str(i) for i in range(n)]):
+                patch.set_facecolor(color)        
+                patch.set_alpha(0.6)
+            ax.set_xticks(np.arange(n))
+            ax.set_xticklabels(self.stats.keys())
+            if i == 0:
+                ax.set_yscale('log')
+            if i == 0:                
+                ax.set_ylabel('Time (s)')
+                ax.set_title("Time taken to run one trajectory")
+            else:
+                ax.set_ylabel('Gap')
+                ax.set_title(r"Empirical distribution of gap $J^{\pi}-J^{\star}$" )
+        M = len(self.stats['MPC']['t'])
+        H = self.steps
+        plt.suptitle(f"Statistics over M={M} trajectories, horizon H={H}")
+        plt.tight_layout()
+
+        
+
+        plt.savefig(filename)
+        plt.show()        
+    
+    def plot_trajectories(self, filename: str = 'trajectories.pdf') -> None:
+        """
+        Plots all the trajectories for each controller.
+        """
+        plt.style.use('bmh')
+        plt.figure()
+        for key, stat in self.stats.items():
+            for traj in stat['x']:
+                plt.plot(traj[:, 0], traj[:, 1], 'o-', markersize=5, alpha=0.5, label=key if traj is stat['x'][0] else None)  
+        
+        plt.xlabel(r'$p$')
+        plt.ylabel(r'$q$')
+        plt.title(f'Trajectories for different controllers')
+        plt.legend()
+        plt.savefig(filename)
+        # plt.show()
 
 if __name__ == "__main__":
     from constructor import constructor
     from data_collector import DataCollector
     from config import get_default_kwargs_yaml
     from tqdm import trange
+    import os
 
     # Define the system and data collector
     env = 'pendulum'    
     cfgs = get_default_kwargs_yaml(algo='', env_id=env)
-    model, mpc, simulator = constructor(env)
-    collector = DataCollector(model, mpc, simulator)
+    model, mpc, simulator = constructor(env, cfgs)
+    collector = DataCollector(model, mpc, simulator, cfgs)
         
-    G = [3, 5, 7, 9, 11]
+    G = [3, 5, 7]  # [3, 5, 7, 9, 11]  # grid anchors per dimension
     regressors = [NNRegressor(nx=model.x.shape[0], nu=model.u.shape[0]) for _ in G]
+    
+    ub = 2  # upper bound for grid
+    method = 'grid'
     for nn, g in zip(regressors, G):
         # Collect data uniformly.
-        data = collector.collect_data(num_trajectories=g**2, lb=-2, ub=2, method='grid')
+        data = collector.collect_data(num_trajectories=g**2, lb=-ub, ub=ub, method=method)
         nn.add_data(data['x'], data['u'])
+
+        filename = f"{env}_{method}{g}_T{cfgs.N}_H{cfgs.mpc.n_horizon}_D{nn.size}.pkl"
+        path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(path, 'datasets')
+        collector.save_data(path=path, filename=filename)
+
+        
 
     
 
 
-    M = 100  # Number of trajectories to evaluate
+    M = 10  # Number of trajectories to evaluate
     samplers = {'X0': np.random.uniform(-3, 3, size=(M, nn.nx, 1)),}
                 # 'f': lambda: np.random.uniform(-3, 3, size=(nn.nx, 1))}
     for k, v in samplers.items():
         print(f"Testing sampler with {k}")
         sampler = Sampler(**{k: v})
-        evaluator = Evaluator()
+        evaluator = Evaluator(mpc)
         # Evaluate MPC controller
-        evaluator.evaluate(model, mpc, simulator, cfgs, sampler, M)        
+        evaluator.evaluate(model, None, simulator, cfgs, sampler, M)        
         # Evaluate NN controller for different k
         for nn in regressors:
             # nn.set_k(k)
             evaluator.evaluate(model, nn, simulator, cfgs, sampler, M)
         # Plot results.
-        evaluator.plot_times(filename=f'times_d_{nn.size}_M_{M}.pdf')
-    
+        evaluator.plot_histograms(filename=f'times_{env}_d_{nn.size}_M_{M}.pdf')
+        evaluator.plot_boxplots(filename=f'bp_{env}_d_{nn.size}_M_{M}.pdf')
+
 
 
 

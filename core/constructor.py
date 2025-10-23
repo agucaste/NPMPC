@@ -11,7 +11,7 @@ from typing import Tuple
 
 valid_environments = ['pendulum', 'min_time', 'constrained_lqr']
 
-def constructor(name: str) -> Tuple[Model, MPC, Simulator]:
+def constructor(name: str, cfgs: Config) -> Tuple[Model, MPC, Simulator]:
     """
     Problem constructor. Given an environment name, creates:
         - the model of the system,
@@ -26,11 +26,7 @@ def constructor(name: str) -> Tuple[Model, MPC, Simulator]:
     mpc: MPC
     simulator: Simulator
 
-    assert name in valid_environments, f"Environment '{name}' not implemented."
-    
-    config = get_default_kwargs_yaml(algo='', env_id=name)
-    print(f"Using config: {config}")    
-    print(f'mpc uses config {config.mpc.todict()}')
+    assert name in valid_environments, f"Environment '{name}' not implemented."    
     
     # Create a continuous time model.
     model = Model('continuous')
@@ -43,7 +39,7 @@ def constructor(name: str) -> Tuple[Model, MPC, Simulator]:
         u = model.set_variable('_u', 'u')
 
         # Parameters
-        g, m, l = config.g, config.m, config.l
+        g, m, l = cfgs.g, cfgs.m, cfgs.l
 
         # Dynamics
         model.set_rhs('theta', omega)
@@ -54,8 +50,8 @@ def constructor(name: str) -> Tuple[Model, MPC, Simulator]:
         # MPC controller
         mpc = MPC(model)
         print(f'config mpc is')
-        print(config.mpc)
-        mpc.set_param(**config.mpc.todict())
+        print(cfgs.mpc)
+        mpc.set_param(**cfgs.mpc.todict())
         
         # Cost function: swing up to theta = 0
         mterm = (theta)**2 + 0.1*omega**2   # terminal cost
@@ -70,7 +66,7 @@ def constructor(name: str) -> Tuple[Model, MPC, Simulator]:
 
         # Simulator for closed-loop execution
         simulator = Simulator(model)
-        simulator.set_param(t_step=config.mpc.t_step)
+        simulator.set_param(t_step=cfgs.mpc.t_step)
         simulator.setup()
     
     elif name == 'min_time':        
@@ -102,7 +98,7 @@ def constructor(name: str) -> Tuple[Model, MPC, Simulator]:
 
         lterm = 10 * u ** 2 + lambd 
         mpc.set_objective(lterm=lterm, mterm=0*p)
-        mpc.set_param(**config.mpc.todict())
+        mpc.set_param(**cfgs.mpc.todict())
         # mpc.set_param(**setup_mpc)
 
         # Control constraints: -1 <= u <= 1
@@ -119,7 +115,7 @@ def constructor(name: str) -> Tuple[Model, MPC, Simulator]:
 
         # Simulator for closed-loop execution
         simulator = Simulator(model)
-        simulator.set_param(t_step=config.mpc.t_step)
+        simulator.set_param(t_step=cfgs.mpc.t_step)
         simulator.setup()
     
     elif name == 'constrained_lqr':

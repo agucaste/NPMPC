@@ -3,6 +3,7 @@ import pickle
 
 import numpy as np
 from constructor import constructor
+from config import Config, get_default_kwargs_yaml
 
 from typing import Tuple
 from numpy.typing import NDArray
@@ -11,8 +12,44 @@ from tqdm import tqdm
 from nn_policy import NNRegressor
 from do_mpc.controller import MPC
 from do_mpc.simulator import Simulator
+from do_mpc.model import Model
 
-def run_trajectory(x0: np.ndarray, steps: int, simulator: Simulator, controller: NNRegressor | MPC) -> Tuple[NDArray, NDArray]:        
+def get_stage_cost(mpc: MPC) -> float:    
+    raise DeprecationWarning
+    x_t = mpc.data['_x'][-1]  # State at time step 0
+    u_t = mpc.data['_u'][-1]  # Control input at time step 0
+    z_t = mpc.data['_z'][-1]  # Algebraic state at time step 0 (if applicable)
+    tvp_t = mpc.data['_tvp'][-1]  # Time-varying parameters at time step 0
+    p_t = mpc.data['_p'][-1]  # Parameters at time step 0
+    return mpc.lterm_fun(x_t, u_t, z_t, tvp_t, p_t)
+
+def get_terminal_cost(mpc: MPC) -> float:
+    raise DeprecationWarning
+    x_t = mpc.data['_x'][-1]  # State at time step 0
+    z_t = mpc.data['_z'][-1]  # Algebraic state at time step 0 (if applicable)
+    tvp_t = mpc.data['_tvp'][-1]  # Time-varying parameters at time step 0
+    p_t = mpc.data['_p'][-1]  # Parameters at time step 0
+    return mpc.mterm_fun(x_t, z_t, tvp_t, p_t)
+
+def get_trajectory_cost(mpc: MPC, x: NDArray, u: NDArray) -> float:
+    """
+    Computes the cost of a trajectory of (x, u) pairs.
+    MPC is used to access cost functions, but the trajectory may come from MPC or NNRegressor.
+    Args:
+        mpc: the MPC controller with cost functions.
+        x: states
+        u: controls
+    """
+    assert x.shape[0] == u.shape[0] + 1, "x should have one more time step than u"
+    
+    cost = 0.    
+    for t in range(u.shape[0]):
+        cost += mpc.lterm_fun(x[t], u[t], [], [], [])
+    cost += mpc.mterm_fun(x[-1], [], [])
+    return float(cost)
+
+
+def run_trajectory(x0: np.ndarray, steps: int, simulator: Simulator, controller: NNRegressor | MPC) -> Tuple[NDArray, NDArray, float]:        
     """
     Runs a closed loop trajectory from an initial condition x0, using the specified 'controller'.
 
@@ -34,28 +71,41 @@ def run_trajectory(x0: np.ndarray, steps: int, simulator: Simulator, controller:
     x = x0
     for t in range(steps):
         u = controller.make_step(x)
+        # Shouldn't use full-length trajectory in one go because of collocation errors!
+        # u_seq = np.asarray(controller.opt_x_num['_u', :, 0])  # (steps, m, 1)        
+        # x_seq = np.asarray(controller.opt_x_num['_x', :, 0]) # (steps, n, c, 1) where c may be the number of collocation points        
         x_hist.append(x)
         u_hist.append(u)
         x = simulator.make_step(u)
+    x_hist.append(x)
+    
+    x_hist = np.array(x_hist)  # (steps+1, n, 1)
+    u_hist = np.array(u_hist)  # (steps, m, 1)
+
     return np.array(x_hist).squeeze(), np.array(u_hist).squeeze()
 
 class DataCollector:
     """
     Class that, given a model, an mpc controller and a simulator,
         - Generates trajectories,
-        - Saves trajectories to memory."""
-    def __init__(self, model, mpc, simulator):
+        - Saves trajectories to memory.
+    """
+    def __init__(self, model: Model, mpc: MPC, simulator: Simulator, cfgs: Config):
         self.model = model
         self.mpc = mpc
         self.simulator = simulator
+        self.cfgs = cfgs
 
-        self.steps = 1000  # problem horizon.
+        self.f_name: str | None = None  # filename to save the dataset.
+
+        self.steps = cfgs.N  # problem horizon.
         assert mpc.settings.n_horizon <= self.steps, "MPC horizon must be less than or equal to simulation steps."
         
         self.data = {
             'x': [],  # states
             'dx': [], # derivatives
             'u': [],  # control
+            'c': 0.0   # cost
         }
         assert mpc.settings.n_horizon <= self.steps
 
@@ -87,8 +137,10 @@ class DataCollector:
         for t in tqdm(range(num_trajectories), desc="Collecting trajectories"):
             x0 = X0[t].reshape(-1,1)
             x, u = run_trajectory(x0=x0, steps=self.steps, simulator=self.simulator, controller=self.mpc)
+            c = get_trajectory_cost(self.mpc, x, u)
             self.data['x'].append(x)
             self.data['u'].append(u)
+            self.data['c'] = c  # TODO: Make it a list of costs per trajectory.
 
         return self.get_data()
     
@@ -107,16 +159,19 @@ class DataCollector:
             - path: directory path to save the file.
             - filename: name of the file.
         """
-        full_path = os.path.join(path, filename + '.pkl')
+        os.makedirs(path, exist_ok=True)
+        full_path = os.path.join(path, filename)
         with open(full_path, 'wb') as f:
             pickle.dump(self.data, f)
         print(f"Dataset saved to {full_path}")
 
 
 if __name__ == "__main__":
-    env = 'min_time'
-    model, mpc, simulator = constructor('min_time')
-    collector = DataCollector(model, mpc, simulator)
+    env = 'pendulum'
+    cfgs = get_default_kwargs_yaml(algo='', env_id=env)
+    
+    model, mpc, simulator = constructor(env, cfgs)
+    collector = DataCollector(model, mpc, simulator, cfgs)
     data = collector.collect_data(num_trajectories=3**2, lb=-2, ub=2, method='grid')
     
     print(f"Collected data keys: {list(data.keys())}")
@@ -134,7 +189,7 @@ if __name__ == "__main__":
 
     plt.xlabel(r'$p$')
     plt.ylabel(r'$q$')
-    plt.title('Trajectories (MPC)')
+    plt.title(f'Trajectories for {env} (MPC)')
     # plt.legend()
-    plt.savefig("example_trajectories.png", dpi=300)
+    plt.savefig(f"example_trajectories_{env}.png", dpi=300)
     plt.show()

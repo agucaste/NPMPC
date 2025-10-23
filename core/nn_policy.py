@@ -42,13 +42,19 @@ class NNRegressor(object):
         """
         Adds data to the nearest neighbor regressor.
         Args:
-            x: list of states, each of shape (T, n), T is the episode length, n is state dimension.
+            x: list of states, each of shape (T+1, n), T is the episode length, n is state dimension.
+                note this includes the terminal state, which is throwed away.
             u: list of controls, each of shape (T, m) or (T, ).
         """
-        if isinstance(x, list):
+        if isinstance(x, list):          
+            x = np.array([xi[:-1] for xi in x])  # (num_trajectories, T, n)
             x = np.concatenate(x, axis=0)
+        else:
+            x = x[:-1]
         if isinstance(u, list):
             u = np.concatenate(u, axis=0)
+        # Throw away last point
+        print(f"Adding data of size x: {x.shape}, u: {u.shape}")
         assert x.shape[0] == u.shape[0]
         print(f"x shape: {x.shape}, u shape: {u.shape}")
         self.x.add(x)  # type: ignore         
