@@ -125,17 +125,18 @@ class Evaluator():
         """
         Makes a histogram of the times taken for each controller.
         """
-        plt.style.use('bmh')
+        # plt.style.use('bmh')
         fig, axs = plt.subplots(1, 2, figsize=(16, 5))
         
         n = len(self.stats)
-        
-        # TODO: Make MPC's cost
+                
+        mpc_costs = self.stats['MPC']['c']
         for k, v in self.stats.items():
             if k == 'MPC':
-                v['gap'] = v['c']
+                v['gap'] = []
             else:
-                v['gap'] = [J - self.stats['MPC']['c'][i] for i, J in enumerate(v['c']) ]
+                # v['gap'] = [(J - mpc_costs[i]) for i, J in enumerate(v['c']) ]
+                v['gap'] = [(J - mpc_costs[i])/(mpc_costs[i] + 1e-6) for i, J in enumerate(v['c']) ]
         print(f"MPC gaps are:")
         print(self.stats['MPC']['gap'])
         what_to_plot = ['t', 'gap']
@@ -146,21 +147,23 @@ class Evaluator():
                             positions=np.arange(n), widths=0.6,
                             boxprops=dict(color='k'),
                             medianprops=dict(color='k', linewidth=2),
-            )
+                            meanprops=dict(marker="^", markersize=6, markeredgecolor='green',  markerfacecolor='green'),
+                            showmeans=True)
+            
             # assign colors one by one
             for patch, color in zip(bp['boxes'], ['C' + str(i) for i in range(n)]):
                 patch.set_facecolor(color)        
                 patch.set_alpha(0.6)
             ax.set_xticks(np.arange(n))
             ax.set_xticklabels(self.stats.keys())
-            if i == 0:
-                ax.set_yscale('log')
+            ax.set_yscale('log')
             if i == 0:                
                 ax.set_ylabel('Time (s)')
                 ax.set_title("Time taken to run one trajectory")
             else:
                 ax.set_ylabel('Gap')
-                ax.set_title(r"Empirical distribution of gap $J^{\pi}-J^{\star}$" )
+                ax.set_title(r"Empirical normalized gap $\frac{J^{\pi}-J^{\star}}{J^\star}$")
+                ax.set_ylim(bottom=1e-8)
         M = len(self.stats['MPC']['t'])
         H = self.steps
         plt.suptitle(f"Statistics over M={M} trajectories, horizon H={H}")
@@ -201,7 +204,7 @@ if __name__ == "__main__":
     model, mpc, simulator = constructor(env, cfgs)
     collector = DataCollector(model, mpc, simulator, cfgs)
         
-    G = [3, 5, 7]  # [3, 5, 7, 9, 11]  # grid anchors per dimension
+    G = [3, 5, 7, 9]  # [3, 5, 7, 9, 11]  # grid anchors per dimension
     regressors = [NNRegressor(nx=model.x.shape[0], nu=model.u.shape[0]) for _ in G]
     
     ub = 2  # upper bound for grid
@@ -221,7 +224,7 @@ if __name__ == "__main__":
     
 
 
-    M = 10  # Number of trajectories to evaluate
+    M = 100  # Number of trajectories to evaluate
     samplers = {'X0': np.random.uniform(-3, 3, size=(M, nn.nx, 1)),}
                 # 'f': lambda: np.random.uniform(-3, 3, size=(nn.nx, 1))}
     for k, v in samplers.items():
