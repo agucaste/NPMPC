@@ -9,7 +9,7 @@ from config import get_default_kwargs_yaml
 
 if __name__ == "__main__":
     # for env in valid_environments:
-    for env in ['min_time']:
+    for env in ['pendulum']:
         cfgs = get_default_kwargs_yaml(algo='', env_id=env)
         model, mpc_t, mpc_h, simulator = constructor(env, cfgs)
 
@@ -17,9 +17,7 @@ if __name__ == "__main__":
         G = 3  # grid points per dimension
         M = G ** n  # total number of trajectories
 
-        anchors = [
-            np.linspace(-3, 3, G) for _ in range(n)
-        ]
+        anchors = [np.linspace(-3, 3, G) for _ in range(n)]
         grid = np.meshgrid(*anchors)
         X0 = np.column_stack([g.ravel() for g in grid]).reshape(M, n, 1)
         sampler = Sampler(X0=X0)

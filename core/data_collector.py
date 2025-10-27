@@ -1,5 +1,6 @@
 import os
 import pickle
+from time import time
 
 import numpy as np
 from constructor import constructor
@@ -49,7 +50,7 @@ def get_trajectory_cost(mpc: MPC, x: NDArray, u: NDArray) -> float:
     return float(cost)
 
 
-def run_trajectory(x0: np.ndarray, steps: int, simulator: Simulator, controller: NNRegressor | MPC) -> Tuple[NDArray, NDArray, float]:        
+def run_trajectory(x0: np.ndarray, steps: int, simulator: Simulator, controller: NNRegressor | MPC) -> Tuple[NDArray, NDArray, NDArray]:        
     """
     Runs a closed loop trajectory from an initial condition x0, using the specified 'controller'.
 
@@ -68,21 +69,25 @@ def run_trajectory(x0: np.ndarray, steps: int, simulator: Simulator, controller:
 
     x_hist = []
     u_hist = []
+    t_hist = []
     x = x0
     for t in range(steps):
+        start_time = time()
         u = controller.make_step(x)
+        t = time() - start_time
         # Shouldn't use full-length trajectory in one go because of collocation errors!
         # u_seq = np.asarray(controller.opt_x_num['_u', :, 0])  # (steps, m, 1)        
         # x_seq = np.asarray(controller.opt_x_num['_x', :, 0]) # (steps, n, c, 1) where c may be the number of collocation points        
         x_hist.append(x)
         u_hist.append(u)
+        t_hist.append(t)
         x = simulator.make_step(u)
     x_hist.append(x)
     
     x_hist = np.array(x_hist)  # (steps+1, n, 1)
     u_hist = np.array(u_hist)  # (steps, m, 1)
-
-    return np.array(x_hist).squeeze(), np.array(u_hist).squeeze()
+    t_hist = np.array(t_hist) 
+    return x_hist.squeeze(), u_hist.squeeze(), t_hist.squeeze()
 
 class DataCollector:
     """
@@ -105,6 +110,7 @@ class DataCollector:
             'x': [],  # states
             'dx': [], # derivatives
             'u': [],  # control
+            't': [],  # time taken to compute control
             'c': 0.0   # cost
         }
         assert mpc.settings.n_horizon <= self.steps
@@ -136,10 +142,11 @@ class DataCollector:
                         
         for t in tqdm(range(num_trajectories), desc="Collecting trajectories"):
             x0 = X0[t].reshape(-1,1)
-            x, u = run_trajectory(x0=x0, steps=self.steps, simulator=self.simulator, controller=self.mpc)
+            x, u, t = run_trajectory(x0=x0, steps=self.steps, simulator=self.simulator, controller=self.mpc)
             c = get_trajectory_cost(self.mpc, x, u)
             self.data['x'].append(x)
             self.data['u'].append(u)
+            self.data['t'].append(t)
             self.data['c'] = c  # TODO: Make it a list of costs per trajectory.
 
         return self.get_data()
