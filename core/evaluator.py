@@ -61,20 +61,22 @@ class Evaluator():
         
         if controller is None:
             controller = self.mpc
-        key = 'MPC' if isinstance(controller, MPC) else f'NN_{controller._k}_D{controller.size}'        
+        if isinstance(controller, MPC):
+            key = 'MPC_' + str(controller.settings.n_horizon)
+        else:
+            key = f'NN_{controller._k}_D{controller.size}'        
         self.stats[key] = {'t': [], 'x': [], 'u': [], 'c': []}        
-        if key != 'MPC':
+        if not key.startswith('MPC'):
             # Get the size of the dataset
             self.stats[key].update({'size': controller.size})
         
-
         self.steps = cfgs.N 
         for _ in trange(M, desc=f"Evaluating {key}"):
             x0 = sampler.sample()
             start_time = time()
             x, u = run_trajectory(x0, self.steps, simulator, controller)
             t = time() - start_time
-            c = get_trajectory_cost(mpc, x, u)
+            c = get_trajectory_cost(mpc_t, x, u)
 
             # print(f'added cost is {c}')
 
@@ -130,15 +132,16 @@ class Evaluator():
         
         n = len(self.stats)
                 
-        mpc_costs = self.stats['MPC']['c']
+        T = self.steps
+        mpc_costs = self.stats[f'MPC_{T}']['c']
         for k, v in self.stats.items():
-            if k == 'MPC':
+            if k == f'MPC_{T}':
                 v['gap'] = []
             else:
                 # v['gap'] = [(J - mpc_costs[i]) for i, J in enumerate(v['c']) ]
                 v['gap'] = [(J - mpc_costs[i])/(mpc_costs[i] + 1e-6) for i, J in enumerate(v['c']) ]
         print(f"MPC gaps are:")
-        print(self.stats['MPC']['gap'])
+        print(self.stats[f'MPC_{T}']['gap'])
         what_to_plot = ['t', 'gap']
         for i, ax in enumerate(axs):
         
@@ -164,15 +167,55 @@ class Evaluator():
                 ax.set_ylabel('Gap')
                 ax.set_title(r"Empirical normalized gap $\frac{J^{\pi}-J^{\star}}{J^\star}$")
                 ax.set_ylim(bottom=1e-8)
-        M = len(self.stats['MPC']['t'])
-        H = self.steps
-        plt.suptitle(f"Statistics over M={M} trajectories, horizon H={H}")
+        M = len(self.stats[f'MPC_{T}']['t'])
+        plt.suptitle(f"Statistics over M={M} trajectories, horizon T={T}")
         plt.tight_layout()
-
-        
-
         plt.savefig(filename)
         plt.show()        
+    
+    def plot_tradeoff(self, filename: str = 'tradeoff.pdf') -> None:
+        """
+        Plots the trade-off between online computation times (x-axis)
+        and cost-to-go (y-axis) for each controller family (MPC and NN)"""
+        T = self.steps
+        assert 'gap' in self.stats[f'MPC_{T}'], "Gaps not computed yet, run plot_boxplots first."
+        plt.style.use('bmh')
+
+        keys = list(self.stats.keys())
+        nn_controllers = [k for k in keys if not k.startswith('MPC')]
+        mpc_controllers = [k for k in keys if k.startswith('MPC')]
+
+        nn_stats = []
+        mpc_stats = []
+
+        self.stats[f'MPC_{T}']['gap'] = [0]
+        for key in keys:
+            t = np.median(self.stats[key]['t'])
+            gap = np.median(self.stats[key]['gap'])
+            print(f"Controller {key}: median time {t:.4f}s, median gap {gap:.4f}")
+            if key.startswith('MPC'):
+                mpc_stats.append((t, gap))
+            else:
+                nn_stats.append((t, gap))
+
+        plt.figure(figsize=(8,6))
+        plt.plot(*zip(*mpc_stats), 's-', c='C0', label='MPC', markersize=16, linewidth=2)
+        plt.plot(*zip(*nn_stats), '*-', c='C1', label='NPP (Ours)', markersize=16, linewidth=2)
+        plt.xscale('log')
+        plt.xlabel("Online Computation Time (s)")
+        plt.ylabel("Normalized Gap")
+        plt.title("Trade-off between computation time and cost-to-go")
+        plt.legend(fontsize='large')
+        plt.tight_layout()
+        plt.savefig(filename)
+        plt.show()
+        
+
+
+
+
+
+
     
     def plot_trajectories(self, filename: str = 'trajectories.pdf') -> None:
         """
@@ -199,12 +242,12 @@ if __name__ == "__main__":
     import os
 
     # Define the system and data collector
-    env = 'pendulum'    
+    env = 'min_time'    
     cfgs = get_default_kwargs_yaml(algo='', env_id=env)
-    model, mpc, simulator = constructor(env, cfgs)
-    collector = DataCollector(model, mpc, simulator, cfgs)
+    model, mpc_t, mpc_h, simulator = constructor(env, cfgs)
+    collector = DataCollector(model, mpc_t, simulator, cfgs)
         
-    G = [3, 5, 7, 9]  # [3, 5, 7, 9, 11]  # grid anchors per dimension
+    G = [5, 7, 9, 11]  # [3, 5, 7, 9, 11]  # grid anchors per dimension
     regressors = [NNRegressor(nx=model.x.shape[0], nu=model.u.shape[0]) for _ in G]
     
     ub = 2  # upper bound for grid
@@ -230,16 +273,19 @@ if __name__ == "__main__":
     for k, v in samplers.items():
         print(f"Testing sampler with {k}")
         sampler = Sampler(**{k: v})
-        evaluator = Evaluator(mpc)
-        # Evaluate MPC controller
+        evaluator = Evaluator(mpc_t)
+        # Evaluate full horizon MPC controller
         evaluator.evaluate(model, None, simulator, cfgs, sampler, M)        
+        # Evaluate receding horizon MPC controller
+        evaluator.evaluate(model, mpc_h, simulator, cfgs, sampler, M)        
         # Evaluate NN controller for different k
         for nn in regressors:
             # nn.set_k(k)
             evaluator.evaluate(model, nn, simulator, cfgs, sampler, M)
         # Plot results.
-        evaluator.plot_histograms(filename=f'times_{env}_d_{nn.size}_M_{M}.pdf')
+        # evaluator.plot_histograms(filename=f'times_{env}_d_{nn.size}_M_{M}.pdf')
         evaluator.plot_boxplots(filename=f'bp_{env}_d_{nn.size}_M_{M}.pdf')
+        evaluator.plot_tradeoff(filename=f'tradeoff_{env}_d_{nn.size}_M_{M}.pdf')
 
 
 

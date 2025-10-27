@@ -28,16 +28,28 @@ min_time:
 #  dp = a*p + q
 #  dq = u
 #  where a>0.
+  # (Full) Problem horizon
   N: 200
+  # Bounds on the control
+  u_lb: -1.0
+  u_ub: 1.0
   mpc:
     n_horizon: 100
     t_step: 0.05
     store_full_solution: True
 
 pendulum:
+  # Parameters
+  # Gravity
   g: 9.82
+  # Mass
   m: 1.0
+  # Pendulum length
   l: 1.0
+  # (Full) Problem horizon
   N: 100
+  # Bounds on control
+  u_lb: -5.0
+  u_ub: 5.0
 
 
