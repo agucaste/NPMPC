@@ -12,7 +12,7 @@ from typing import Tuple
 
 valid_environments = ['pendulum', 'min_time', 'constrained_lqr']
 
-def constructor(name: str, cfgs: Config) -> Tuple[Model, MPC, Simulator]:
+def constructor(name: str, cfgs: Config) -> Tuple[Model, MPC, MPC, Simulator]:
     """
     Problem constructor. Given an environment name, creates:
         - model: the model of the system,
@@ -139,7 +139,8 @@ def constructor(name: str, cfgs: Config) -> Tuple[Model, MPC, Simulator]:
 # Let's try it out!
 if __name__ == "__main__":
     for name in valid_environments:
-        model, mpc_t, mpc_h, simulator = constructor(name)
+        cfgs = get_default_kwargs_yaml(algo='', env_id=name)
+        model, mpc_t, mpc_h, simulator = constructor(name, cfgs)
         
         x0_shape = model.x.shape
         print(f"Environment: {name}, x0 shape: {x0_shape}")

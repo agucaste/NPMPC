@@ -2,6 +2,9 @@ import numpy as np
 from time import time
 from matplotlib import pyplot as plt
 
+from tqdm import trange
+import os
+
 from do_mpc.model import Model
 from do_mpc.controller import MPC
 from do_mpc.simulator import Simulator
@@ -53,7 +56,7 @@ class Evaluator():
 
     def evaluate(self,
                  model: Model,
-                 controller: Optional[NNRegressor],
+                 controller: NNRegressor | MPC | None,
                  simulator: Simulator,
                  cfgs: Config,
                  sampler: Sampler,
@@ -64,7 +67,7 @@ class Evaluator():
         if isinstance(controller, MPC):
             key = 'MPC_' + str(controller.settings.n_horizon)
         else:
-            key = f'NN_{controller._k}_D{controller.size}'        
+            key = f'NN_{controller.k}_D{controller.size}'        
         self.stats[key] = {'t': [], 'x': [], 'u': [], 'c': []}        
         if not key.startswith('MPC'):
             # Get the size of the dataset
@@ -76,7 +79,7 @@ class Evaluator():
             start_time = time()
             x, u = run_trajectory(x0, self.steps, simulator, controller)
             t = time() - start_time
-            c = get_trajectory_cost(mpc_t, x, u)
+            c = get_trajectory_cost(self.mpc, x, u)
 
             # print(f'added cost is {c}')
 
@@ -84,6 +87,7 @@ class Evaluator():
             self.stats[key]['x'].append(x)
             self.stats[key]['u'].append(u)
             self.stats[key]['c'].append(c)
+        return self.stats[key]
 
     
     def plot_histograms(self, filename: str = 'times.pdf') -> None:
@@ -210,12 +214,6 @@ class Evaluator():
         plt.savefig(filename)
         plt.show()
         
-
-
-
-
-
-
     
     def plot_trajectories(self, filename: str = 'trajectories.pdf') -> None:
         """
@@ -223,9 +221,9 @@ class Evaluator():
         """
         plt.style.use('bmh')
         plt.figure()
-        for key, stat in self.stats.items():
+        for i, (key, stat) in enumerate(self.stats.items()):
             for traj in stat['x']:
-                plt.plot(traj[:, 0], traj[:, 1], 'o-', markersize=5, alpha=0.5, label=key if traj is stat['x'][0] else None)  
+                plt.plot(traj[:, 0], traj[:, 1], 'o-', c=f"C{i}", markersize=5, alpha=0.5, label=key if traj is stat['x'][0] else None)  
         
         plt.xlabel(r'$p$')
         plt.ylabel(r'$q$')
@@ -238,8 +236,6 @@ if __name__ == "__main__":
     from constructor import constructor
     from data_collector import DataCollector
     from config import get_default_kwargs_yaml
-    from tqdm import trange
-    import os
 
     # Define the system and data collector
     env = 'min_time'    

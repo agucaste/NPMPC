@@ -35,8 +35,8 @@ min_time:
   u_ub: 1.0
   mpc:
     n_horizon: 100
-    t_step: 0.05
-    store_full_solution: True
+    t_step: 0.1
+    store_full_solution: False
 
 pendulum:
   # Parameters
