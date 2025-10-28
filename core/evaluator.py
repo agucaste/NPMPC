@@ -1,5 +1,5 @@
 import numpy as np
-from time import time
+import time
 from matplotlib import pyplot as plt
 
 from tqdm import trange
@@ -124,11 +124,12 @@ class Evaluator():
         plt.savefig(filename)
         # plt.show()
 
-    def plot_boxplots(self, filename: str = 'times.pdf', title_prefix: Optional[str] = None) -> None:
+    def plot_boxplots(self, path: Optional[str] = None, filename: str = 'times.pdf', title_prefix: Optional[str] = None) -> None:
         """
         Makes a histogram of the times taken for each controller.
         """
         # plt.style.use('bmh')
+        path = '.' if path is None else path
         fig, axs = plt.subplots(1, 2, figsize=(16, 5))
         
         n = len(self.stats)
@@ -136,7 +137,8 @@ class Evaluator():
         T = self.steps
         mpc_costs = self.stats[f'MPC_{T}']['c']
         for k, v in self.stats.items():
-            v['t_flatten'] = np.log(np.array(v['t']).flatten() * 1000) # convert to ms
+            # v['t_flatten'] = np.log(np.array(v['t']).flatten() * 1000) # convert to ms
+            v['t_flatten'] = np.array(v['t']).flatten() * 1000  # convert to ms
             if k == f'MPC_{T}':
                 v['gap'] = []                
             else:
@@ -164,6 +166,7 @@ class Evaluator():
             ax.set_xticklabels(self.stats.keys())
             ax.set_yscale('log')
             if i == 0:          
+                # ax.set_yscale('linear')
                 # # Get the exponents
                 # exp_t_min = np.floor(min([min(self.stats[key]['t_flatten']) for key in self.stats.keys()]))
                 # exp_t_max = np.ceil(max([max(self.stats[key]['t_flatten']) for key in self.stats.keys()]))
@@ -185,13 +188,14 @@ class Evaluator():
         title = capitalize(title_prefix) + title if title_prefix is not None else title
         plt.suptitle(title, fontsize='large')
         plt.tight_layout()
-        plt.savefig(filename)
-        plt.show()        
+        plt.savefig(os.path.join(path, filename))
+        # plt.show()        
     
-    def plot_tradeoff(self, filename: str = 'tradeoff.pdf', title: Optional[str] = None) -> None:
+    def plot_tradeoff(self, path: Optional[str] = None, filename: str = 'tradeoff.pdf', title: Optional[str] = None) -> None:
         """
         Plots the trade-off between online computation times (x-axis)
         and cost-to-go (y-axis) for each controller family (MPC and NN)"""
+        path = '.' if path is None else path
         T = self.steps
         assert 'gap' in self.stats[f'MPC_{T}'], "Gaps not computed yet, run plot_boxplots first."
         plt.style.use('bmh')
@@ -223,11 +227,11 @@ class Evaluator():
         plt.title(title if title is None else "Trade-off between computation time and cost-to-go", fontsize='large')
         plt.legend(fontsize='large')
         plt.tight_layout()
-        plt.savefig(filename)
-        plt.show()
+        plt.savefig(os.path.join(path, filename))
+        # plt.show()
         
     
-    def plot_trajectories(self, filename: str = 'trajectories.pdf') -> None:
+    def plot_trajectories(self, path: Optional[str] = None, filename: str = 'trajectories.pdf') -> None:
         """
         Plots all the trajectories for each controller.
         """
@@ -242,7 +246,7 @@ class Evaluator():
         plt.title(f'Trajectories for different controllers')
         plt.legend()
         plt.tight_layout()
-        plt.savefig(filename)
+        plt.savefig(os.path.join(path, filename))
         # plt.show()
 
 if __name__ == "__main__":
@@ -259,9 +263,23 @@ if __name__ == "__main__":
     })
 
     # Define the system and data collector
-    env = 'min_time'  # 'min_time'    
+    env = 'pendulum'  # 'min_time'    
     cfgs = get_default_kwargs_yaml(algo='', env_id=env)
-    model, mpc_t, mpc_h, simulator = constructor(env, cfgs)
+    
+    # Path to save files -> Create based on time.
+    hms_time = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        'results',
+                        env,
+                        hms_time)    
+    os.makedirs(path, exist_ok=True)
+    
+    with open(os.path.join(path, 'config.json'), encoding='utf-8', mode='w') as f:
+                f.write(cfgs.tojson())
+    
+    # Create the system model and MPC controllers
+    model, mpcs, simulator = constructor(env, cfgs)
+    mpc_t = mpcs[0]  # Full horizon MPC
     collector = DataCollector(model, mpc_t, simulator, cfgs)
         
     G = [1, 2]  # [5, 7, 9, 11]  # [3, 5, 7, 9, 11]  # grid anchors per dimension
@@ -274,10 +292,8 @@ if __name__ == "__main__":
         data = collector.collect_data(num_trajectories=g**2, lb=-ub, ub=ub, method=method)
         nn.add_data(data['x'], data['u'])
 
-        filename = f"{env}_{method}{g}_T{cfgs.N}_H{cfgs.mpc.n_horizon}_D{nn.size}.pkl"
-        path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        path = os.path.join(path, 'datasets')
-        collector.save_data(path=path, filename=filename)
+        filename = f"{env}_{method}{g}_T{cfgs.N}_H{cfgs.mpc.n_horizon}_D{nn.size}.pkl"        
+        collector.save_data(path=os.path.join(path, 'datasets'), filename=filename)
 
         
 
@@ -289,20 +305,21 @@ if __name__ == "__main__":
     sampler = Sampler(X0=X0)
 
     evaluator = Evaluator(mpc_t)
-    # Evaluate full horizon MPC controller
-    evaluator.evaluate(model, None, simulator, cfgs, sampler, M)        
-    # Evaluate receding horizon MPC controller
-    evaluator.evaluate(model, mpc_h, simulator, cfgs, sampler, M)        
+    # Evaluate all the MPC controllers (full horizon first)
+    for mpc in mpcs:
+        evaluator.evaluate(model, mpc, simulator, cfgs, sampler, M)        
+    # # Evaluate receding horizon MPC controller
+    # evaluator.evaluate(model, mpc_h, simulator, cfgs, sampler, M)        
     # Evaluate NN controller for different k
     for nn in regressors:
         # nn.set_k(k)
         evaluator.evaluate(model, nn, simulator, cfgs, sampler, M)
     # Plot results.
     # evaluator.plot_histograms(filename=f'times_{env}_d_{nn.size}_M_{M}.pdf')
-    evaluator.plot_boxplots(filename=f'bp_{env}_d_{nn.size}_M_{M}.pdf', title_prefix=f"{capitalize(env)}: ")
-    evaluator.plot_tradeoff(filename=f'tradeoff_{env}_d_{nn.size}_M_{M}.pdf',
+    evaluator.plot_boxplots(path=path, filename=f'bp_{env}_d_{nn.size}_M_{M}.pdf', title_prefix=f"{capitalize(env)}: ")
+    evaluator.plot_tradeoff(path=path, filename=f'tradeoff_{env}_d_{nn.size}_M_{M}.pdf',
                             title=f"{capitalize(env)}: Computation Time/Cost-to-go trade-off")
-    evaluator.plot_trajectories(filename=f'trajectories_{env}_d_{nn.size}_M_{M}.pdf')
+    evaluator.plot_trajectories(path=path, filename=f'trajectories_{env}_d_{nn.size}_M_{M}.pdf')
 
 
 

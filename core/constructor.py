@@ -8,11 +8,11 @@ from do_mpc.simulator import Simulator
 
 from config import Config, get_default_kwargs_yaml
 
-from typing import Tuple
+from typing import Tuple, List
 
 valid_environments = ['pendulum', 'min_time', 'constrained_lqr']
 
-def constructor(name: str, cfgs: Config) -> Tuple[Model, MPC, MPC, Simulator]:
+def constructor(name: str, cfgs: Config) -> Tuple[Model, List[MPC], Simulator]:
     """
     Problem constructor. Given an environment name, creates:
         - model: the model of the system,
@@ -25,8 +25,7 @@ def constructor(name: str, cfgs: Config) -> Tuple[Model, MPC, MPC, Simulator]:
     """
     
     model: Model
-    mpc_T: MPC
-    mpc_H: MPC
+    mpcs: List[MPC]
     simulator: Simulator
 
     assert name in valid_environments, f"Environment '{name}' not implemented."    
@@ -51,31 +50,21 @@ def constructor(name: str, cfgs: Config) -> Tuple[Model, MPC, MPC, Simulator]:
         model.setup()
 
         # MPC controller
-        mpc_H = MPC(model)
+        mpc_T = MPC(model)
         print(f'config mpc is')
         print(cfgs.mpc)
-        mpc_H.set_param(**cfgs.mpc.todict())
+        cfgs.mpc.n_horizon = cfgs.N  # First MPC controller has the full horizon.
+        mpc_T.set_param(**cfgs.mpc.todict())
         
         # Cost function: swing up to theta = 0
         mterm = (theta)**2 + 0.1*omega**2   # terminal cost
         lterm = (theta)**2 + 0.1*omega**2 + 0.01*u**2  # stage cost
-        mpc_H.set_objective(mterm=mterm, lterm=lterm)
+        mpc_T.set_objective(mterm=mterm, lterm=lterm)
 
         # Input bounds
-        mpc_H.bounds['lower','_u','u'] = cfgs.u_lb
-        mpc_H.bounds['upper','_u','u'] = cfgs.u_ub
+        mpc_T.bounds['lower','_u','u'] = cfgs.u_lb
+        mpc_T.bounds['upper','_u','u'] = cfgs.u_ub
 
-        # Before setting up, copy to full horizon MPC
-        mpc_T = deepcopy(mpc_H)
-        mpc_T.set_param(n_horizon=cfgs.N)
-        for mpc in [mpc_H, mpc_T]:
-            mpc.setup()
-
-        # Simulator for closed-loop execution
-        simulator = Simulator(model)
-        simulator.set_param(t_step=cfgs.mpc.t_step)
-        simulator.setup()
-    
     elif name == 'min_time':        
         p = model.set_variable('_x', 'p')
         q = model.set_variable('_x', 'q')
@@ -90,39 +79,24 @@ def constructor(name: str, cfgs: Config) -> Tuple[Model, MPC, MPC, Simulator]:
         model.setup()
 
         # MPC controller
-        mpc_H = MPC(model)
-        # setup_mpc = {
-        #     'n_horizon': 100,
-        #     't_step': 0.01,
-        #     'n_robust': 0,
-        #     'store_full_solution': True,
-        #     'nlpsol_opts':{
-        #         "ipopt.print_level": 1,  # 0-> no output. 1 -> errors only. 2-> default.
-        #         "ipopt.sb": "yes",
-        #         "print_time": 0,
-        #         }        
-        # }
+        mpc_T = MPC(model)
 
         lterm = 10 * u ** 2 + lambd 
-        mpc_H.set_objective(lterm=lterm, mterm=0*p)
-        mpc_H.set_param(**cfgs.mpc.todict())
+        mpc_T.set_objective(lterm=lterm, mterm=0*p)
+
+        cfgs.mpc.n_horizon = cfgs.N  # First MPC controller has the full horizon.
+        mpc_T.set_param(**cfgs.mpc.todict())
         # mpc.set_param(**setup_mpc)
 
         # Control constraints: -1 <= u <= 1
-        mpc_H.bounds['lower','_u','u'] = cfgs.u_lb
-        mpc_H.bounds['upper','_u','u'] = cfgs.u_ub
+        mpc_T.bounds['lower','_u','u'] = cfgs.u_lb
+        mpc_T.bounds['upper','_u','u'] = cfgs.u_ub
 
         # Terminal constraint: p == 0, q == 0 at end of horizon
-        mpc_H.terminal_bounds['lower', 'p'] = 0.
-        mpc_H.terminal_bounds['upper', 'p'] = 0.
-        mpc_H.terminal_bounds['lower', 'q'] = 0.        
-        mpc_H.terminal_bounds['upper', 'q'] = 0.
-
-        # Before setting up, copy to full horizon MPC
-        mpc_T = deepcopy(mpc_H)
-        mpc_T.set_param(n_horizon=cfgs.N)
-        for mpc in [mpc_H, mpc_T]:
-            mpc.setup()
+        mpc_T.terminal_bounds['lower', 'p'] = 0.
+        mpc_T.terminal_bounds['upper', 'p'] = 0.
+        mpc_T.terminal_bounds['lower', 'q'] = 0.        
+        mpc_T.terminal_bounds['upper', 'q'] = 0.
 
         # Simulator for closed-loop execution
         simulator = Simulator(model)
@@ -131,21 +105,36 @@ def constructor(name: str, cfgs: Config) -> Tuple[Model, MPC, MPC, Simulator]:
     
     elif name == 'constrained_lqr':
         raise NotImplementedError("Environment 'constrained_lqr' not implemented yet.")
+    
+    mpc_list = [mpc_T] # List of MPC controllers (different H)
+    # Before setting up, copy to full horizon MPC
+    for h in cfgs.mpc.n_horizons:
+        mpc_h = deepcopy(mpc_T)
+        mpc_h.set_param(n_horizon=h)
+        mpc_list.append(mpc_h)
+    
+    # Set them up.
+    for mpc in mpc_list:
+        mpc.setup()
 
-    return model, mpc_T, mpc_H, simulator
+    # Simulator for closed-loop execution
+    simulator = Simulator(model)
+    simulator.set_param(t_step=cfgs.mpc.t_step)
+    simulator.setup()
 
-
+    return model, mpc_list, simulator
 
 # Let's try it out!
 if __name__ == "__main__":
     for name in valid_environments:
-        cfgs = get_default_kwargs_yaml(algo='', env_id=name)
-        model, mpc_t, mpc_h, simulator = constructor(name, cfgs)
+        cfgs = get_default_kwargs_yaml(algo='', env_id=name)        
+        model, mpcs, simulator = constructor(name, cfgs)
         
         x0_shape = model.x.shape
         print(f"Environment: {name}, x0 shape: {x0_shape}")
         x0 = np.random.normal(loc=0.0, scale=1, size=x0_shape)
         # x0 = np.random.normal(loc=[[np.pi/2], [np.pi/2]], scale=0.1, size=(2,1))
+        mpc_t = mpcs[0]
         mpc_t.x0 = x0
         simulator.x0 = x0
         mpc_t.set_initial_guess()

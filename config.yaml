@@ -3,8 +3,8 @@ defaults:
     # "True" horizon for the problem
     N: 100
   mpc:
-    # Predictive horizon
-    n_horizon: 20
+    # Predictive horizons
+    n_horizons: [20]
     # Timestep (in seconds) for cont. time model.
     t_step: 0.05  
     # Robust horizon
