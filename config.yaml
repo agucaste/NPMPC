@@ -1,7 +1,7 @@
 defaults:
-  model:
-    # "True" horizon for the problem
-    N: 100
+  G: [3, 5, 7, 9]
+  # "True" horizon for the problem
+  N: 100
   mpc:
     # Predictive horizons
     n_horizons: [20]
@@ -21,20 +21,64 @@ defaults:
 # -------------------
 # Custom environments
 # -------------------
-constrained_lqr:
+constrained_lqr_1:
+  # Example taken from Chen et al (https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=8431275)  
+  # Grid anchors per dimension for NN
+  G: [5, 15, 25, 35]  
+  # Horizon
+  N: 50
+  # System dynamics
+  A: [[1.0, 0.1], [0, 1]]
+  B: [0.005, .1]
+  # State constraints
+  x_lb: [-6, -1]
+  x_ub: [6, 1]
+  # Slack
+  epsilon: 0.1
+  # Control constraints
+  u_lb: -2
+  u_ub: 2
+  # Horizons for mpc
+  mpc:
+    n_horizons: [50, 15, 5]
+
+constrained_lqr_2:
+  # A variation of constrained_lqr_1; X is an L_infinity ball, trying to "stress" MPC.
+  # Grid anchors per dimension for NN
+  G: [5, 15, 25, 35]  
+  # Horizon
+  N: 50
+  # System dynamics
+  A: [[1, 0.1], [0, 1]]
+  B: [0.005, .1]
+  # State constraints
+  x_lb: [-6, -1]
+  x_ub: [6, 1]
+  # Slack
+  epsilon: 0.1
+  # Control constraints
+  u_lb: -2
+  u_ub: 2
+  # Horizons for mpc
+  mpc:
+    n_horizons: [50, 15, 5]
+
+
 
 min_time:
 # Minimum (continuous) time problem:
 #  dp = a*p + q
 #  dq = u
 #  where a>0.
+  # Grid anchors for NN
+  G: [5, 7, 9, 11]
   # (Full) Problem horizon
   N: 200
   # Bounds on the control
   u_lb: -1.0
   u_ub: 1.0
   mpc:
-    n_horizon: 100
+    n_horizons: [100]
     t_step: 0.1
     store_full_solution: False
 

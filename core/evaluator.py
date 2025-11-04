@@ -4,6 +4,7 @@ from matplotlib import pyplot as plt
 
 from tqdm import trange
 import os
+import pickle
 
 from do_mpc.model import Model
 from do_mpc.controller import MPC
@@ -11,7 +12,7 @@ from do_mpc.simulator import Simulator
 
 from nn_policy import NNRegressor
 from config import Config
-from data_collector import run_trajectory, get_trajectory_cost
+from data_collector import run_trajectory, get_trajectory_cost, count_infeasible_steps
 
 from typing import Any, Callable, Optional
 from numpy.typing import NDArray
@@ -67,7 +68,7 @@ class Evaluator():
             key = 'MPC_' + str(controller.settings.n_horizon)
         else:
             key = f'NN_{controller.k}_D{controller.size}'        
-        self.stats[key] = {'t': [], 'x': [], 'u': [], 'c': []}        
+        self.stats[key] = {'t': [], 'x': [], 'u': [], 'c': [], 'i': []}        
         if not key.startswith('MPC'):
             # Get the size of the dataset
             self.stats[key].update({'size': controller.size})
@@ -77,6 +78,7 @@ class Evaluator():
             x0 = sampler.sample()
             x, u, t = run_trajectory(x0, self.steps, simulator, controller)
             c = get_trajectory_cost(self.mpc, x, u)
+            i = count_infeasible_steps(x, cfgs)
 
             # print(f'added cost is {c}')
 
@@ -84,6 +86,7 @@ class Evaluator():
             self.stats[key]['x'].append(x)
             self.stats[key]['u'].append(u)
             self.stats[key]['c'].append(c)
+            self.stats[key]['i'].append(i)
         return self.stats[key]
 
     
@@ -124,16 +127,19 @@ class Evaluator():
         plt.savefig(filename)
         # plt.show()
 
-    def plot_boxplots(self, path: Optional[str] = None, filename: str = 'times.pdf', title_prefix: Optional[str] = None) -> None:
+    def plot_boxplots(self, path: Optional[str] = None,
+                      filename: str = 'times.pdf',
+                      title_prefix: Optional[str] = None,
+                      plot_infeasibility: bool = False) -> None:
         """
         Makes a histogram of the times taken for each controller.
         """
         # plt.style.use('bmh')
         path = '.' if path is None else path
-        fig, axs = plt.subplots(1, 2, figsize=(16, 5))
         
         n = len(self.stats)
-                
+        fig, axs = plt.subplots(1, 2, figsize=(3*n, 5))
+        
         T = self.steps
         mpc_costs = self.stats[f'MPC_{T}']['c']
         for k, v in self.stats.items():
@@ -181,7 +187,7 @@ class Evaluator():
                 # ax.set_yscale('log')
                 ax.set_ylabel('Gap', fontsize='large')
                 ax.set_title(r"Empirical normalized gap $\frac{J^{\pi}-J^{\star}}{J^\star}$", fontsize='large')
-                ax.set_ylim(bottom=1e-6)
+                # ax.set_ylim(bottom=1e-6)
         M = len(self.stats[f'MPC_{T}']['c'])
         
         title = f"Statistics over M={M} trajectories, horizon T={T}"
@@ -189,7 +195,32 @@ class Evaluator():
         plt.suptitle(title, fontsize='large')
         plt.tight_layout()
         plt.savefig(os.path.join(path, filename))
-        # plt.show()        
+        
+        # Plotting number of infeasible steps in the trajectory
+        if plot_infeasibility:
+            fig, ax = plt.subplots(1, 1, figsize=(1.5*n, 5))
+            bp = ax.boxplot([self.stats[key]['i'] for key in self.stats.keys()],
+                            patch_artist=True,
+                            positions=np.arange(n), widths=0.6,
+                            boxprops=dict(color='k'),
+                            medianprops=dict(color='k', linewidth=2),
+                            meanprops=dict(marker="^", markersize=6, markeredgecolor='green',  markerfacecolor='green'),
+                            showmeans=True)
+            
+            # assign colors one by one
+            for patch, color in zip(bp['boxes'], ['C' + str(i) for i in range(n)]):
+                patch.set_facecolor(color)        
+                patch.set_alpha(0.6)
+            ax.set_xticks(np.arange(n))
+            ax.set_xticklabels(self.stats.keys())
+            ax.set_ylabel('Infeasible events', fontsize='large')
+            title = f"Infeasible events in a trajectory; M={M} trajectories, horizon T={T}"
+            title = capitalize(title_prefix) + title if title_prefix is not None else title
+            ax.set_title(title, fontsize='large')
+            plt.tight_layout()
+            plt.savefig(os.path.join(path, f'infeas_' + filename))
+
+
     
     def plot_tradeoff(self, path: Optional[str] = None, filename: str = 'tradeoff.pdf', title: Optional[str] = None) -> None:
         """
@@ -241,13 +272,20 @@ class Evaluator():
             for traj in stat['x']:
                 plt.plot(traj[:, 0], traj[:, 1], 'o-', c=f"C{i}", markersize=5, alpha=0.5, label=key if traj is stat['x'][0] else None)  
         
-        plt.xlabel(r'$p$')
-        plt.ylabel(r'$q$')
+        plt.xlabel(r'$x_1$')
+        plt.ylabel(r'$x_2$')
         plt.title(f'Trajectories for different controllers')
         plt.legend()
         plt.tight_layout()
         plt.savefig(os.path.join(path, filename))
         # plt.show()
+
+    def dump_stats(self, path: str, filename: str) -> None:
+        """
+        Dumps the statistics to a JSON file.
+        """
+        with open(os.path.join(path, filename), 'wb') as f:
+            pickle.dump(self.stats, f)
 
 if __name__ == "__main__":
     from constructor import constructor
@@ -263,9 +301,10 @@ if __name__ == "__main__":
     })
 
     # Define the system and data collector
-    env = 'pendulum'  # 'min_time'    
+    env = 'constrained_lqr_1'  # 'min_time'    
     cfgs = get_default_kwargs_yaml(algo='', env_id=env)
-    
+    print(f"Configs are {cfgs}")
+
     # Path to save files -> Create based on time.
     hms_time = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())
     path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -282,10 +321,15 @@ if __name__ == "__main__":
     mpc_t = mpcs[0]  # Full horizon MPC
     collector = DataCollector(model, mpc_t, simulator, cfgs)
         
-    G = [1, 2]  # [5, 7, 9, 11]  # [3, 5, 7, 9, 11]  # grid anchors per dimension
+    # G = [5, 9, 11, 15]  # [5, 7, 9, 11]  # [3, 5, 7, 9, 11]  # grid anchors per dimension
+    G = cfgs.G
+    G = [1]
     regressors = [NNRegressor(nx=model.x.shape[0], nu=model.u.shape[0]) for _ in G]
     
-    ub = 2  # upper bound for grid
+    if hasattr(cfgs, 'x_lb') and hasattr(cfgs, 'x_ub'):
+        ub = np.array(cfgs.x_ub)
+    else:
+        ub = 2.0
     method = 'grid'
     for nn, g in zip(regressors, G):
         # Collect data uniformly.
@@ -300,13 +344,17 @@ if __name__ == "__main__":
     
 
 
-    M = 10  # Number of trajectories to evaluate
-    X0 = np.random.uniform(-3, 3, size=(M, model.x.shape[0], 1))    
+    M = 100  # Number of trajectories to evaluate 
+    X0 = np.random.uniform(-ub, ub, size=(M, model.x.shape[0]))
+    X0 = X0.reshape((M, model.x.shape[0], 1))    
     sampler = Sampler(X0=X0)
 
     evaluator = Evaluator(mpc_t)
     # Evaluate all the MPC controllers (full horizon first)
-    for mpc in mpcs:
+    for i, mpc in enumerate(mpcs):
+        if i == 0 and hasattr(cfgs, 'x_lb') and hasattr(cfgs, 'x_ub'):
+            # Skipping the MPC teacher for the conservative problem
+            continue  
         evaluator.evaluate(model, mpc, simulator, cfgs, sampler, M)        
     # # Evaluate receding horizon MPC controller
     # evaluator.evaluate(model, mpc_h, simulator, cfgs, sampler, M)        
@@ -314,12 +362,19 @@ if __name__ == "__main__":
     for nn in regressors:
         # nn.set_k(k)
         evaluator.evaluate(model, nn, simulator, cfgs, sampler, M)
+    
     # Plot results.
-    # evaluator.plot_histograms(filename=f'times_{env}_d_{nn.size}_M_{M}.pdf')
-    evaluator.plot_boxplots(path=path, filename=f'bp_{env}_d_{nn.size}_M_{M}.pdf', title_prefix=f"{capitalize(env)}: ")
+    
+    # We plot infeasibility only if the config file has state bounds.
+    plot_infeasibility = hasattr(cfgs, 'x_lb') and hasattr(cfgs, 'x_ub')
+
+    evaluator.plot_boxplots(path=path, filename=f'bp_{env}_d_{nn.size}_M_{M}.pdf', title_prefix=f"{capitalize(env)}: ",
+                            plot_infeasibility=plot_infeasibility)
     evaluator.plot_tradeoff(path=path, filename=f'tradeoff_{env}_d_{nn.size}_M_{M}.pdf',
                             title=f"{capitalize(env)}: Computation Time/Cost-to-go trade-off")
     evaluator.plot_trajectories(path=path, filename=f'trajectories_{env}_d_{nn.size}_M_{M}.pdf')
+
+    evaluator.dump_stats(path=path, filename=f'stats_{env}_d_{nn.size}_M_{M}.pkl')
 
 
 

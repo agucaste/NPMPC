@@ -49,6 +49,31 @@ def get_trajectory_cost(mpc: MPC, x: NDArray, u: NDArray) -> float:
     cost += mpc.mterm_fun(x[-1], [], [])
     return float(cost)
 
+def count_infeasible_steps(x: NDArray, cfgs: Config, mode: str = 'l1') -> int:
+    """
+    Counts the number of time steps in the trajectory (x, u) that violate state constraints.
+    Args:
+        x: states
+        cfgs: config object
+    Returns:
+        L_1 norm of constraint violations, summed over the trajectory.
+    """
+    assert mode in ['counts', 'l1']
+    if not (hasattr(cfgs, 'x_lb') and hasattr(cfgs, 'x_ub')):
+        return 0
+    count = 0
+    norm = 0.0
+    for t in range(x.shape[0]):
+        if np.any(x[t] < cfgs.x_lb) or np.any(x[t] > cfgs.x_ub):
+            # Integer counts
+            count += 1
+            # L_1 norm of violations
+            lb_count = np.maximum(cfgs.x_lb - x[t], 0)
+            ub_count = np.maximum(x[t] - cfgs.x_ub, 0)
+            norm += lb_count.sum(where=lb_count>0) + ub_count.sum(where=ub_count>0)
+    return count if mode == 'counts' else norm
+    
+
 
 def run_trajectory(x0: np.ndarray, steps: int, simulator: Simulator, controller: NNRegressor | MPC) -> Tuple[NDArray, NDArray, NDArray]:        
     """
@@ -111,7 +136,8 @@ class DataCollector:
             'dx': [], # derivatives
             'u': [],  # control
             't': [],  # time taken to compute control
-            'c': 0.0   # cost
+            'c': 0.0,   # cost,
+            'i': 0     # number of steps that violate constraints
         }
         assert mpc.settings.n_horizon <= self.steps
 
@@ -144,10 +170,12 @@ class DataCollector:
             x0 = X0[t].reshape(-1,1)
             x, u, t = run_trajectory(x0=x0, steps=self.steps, simulator=self.simulator, controller=self.mpc)
             c = get_trajectory_cost(self.mpc, x, u)
+            i = count_infeasible_steps(x, self.cfgs)
             self.data['x'].append(x)
             self.data['u'].append(u)
             self.data['t'].append(t)
             self.data['c'] = c  # TODO: Make it a list of costs per trajectory.
+            self.data['i'] = i
 
         return self.get_data()
     
@@ -176,6 +204,7 @@ class DataCollector:
 if __name__ == "__main__":
     env = 'pendulum'
     cfgs = get_default_kwargs_yaml(algo='', env_id=env)
+    print(f"Configs are {cfgs}")
     
     model, mpc, simulator = constructor(env, cfgs)
     collector = DataCollector(model, mpc, simulator, cfgs)

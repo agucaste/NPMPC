@@ -210,7 +210,7 @@ def get_default_kwargs_yaml(env_id: str, algo: str = '') -> Config:
     kwargs = load_yaml(cfg_path)
     default_kwargs = kwargs['defaults']
     env_spec_kwargs = kwargs[env_id] if env_id in kwargs else None
-    print(f"particular env specs are {env_spec_kwargs}")
+    # print(f"particular env specs are {env_spec_kwargs}")
 
     default_kwargs = Config.dict2config(default_kwargs)
 

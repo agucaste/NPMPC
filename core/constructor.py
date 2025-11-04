@@ -10,7 +10,7 @@ from config import Config, get_default_kwargs_yaml
 
 from typing import Tuple, List
 
-valid_environments = ['pendulum', 'min_time', 'constrained_lqr']
+valid_environments = ['pendulum', 'min_time', 'constrained_lqr_1', 'constrained_lqr_2']
 
 def constructor(name: str, cfgs: Config) -> Tuple[Model, List[MPC], Simulator]:
     """
@@ -31,7 +31,7 @@ def constructor(name: str, cfgs: Config) -> Tuple[Model, List[MPC], Simulator]:
     assert name in valid_environments, f"Environment '{name}' not implemented."    
     
     # Create a continuous time model.
-    model = Model('continuous')
+    model = Model('continuous') if name != 'constrained_lqr' else Model('discrete')
     if name == 'pendulum':
         # States: angle θ, angular velocity ω
         theta = model.set_variable('_x', 'theta')
@@ -98,13 +98,42 @@ def constructor(name: str, cfgs: Config) -> Tuple[Model, List[MPC], Simulator]:
         mpc_T.terminal_bounds['lower', 'q'] = 0.        
         mpc_T.terminal_bounds['upper', 'q'] = 0.
 
-        # Simulator for closed-loop execution
-        simulator = Simulator(model)
-        simulator.set_param(t_step=cfgs.mpc.t_step)
-        simulator.setup()
-    
-    elif name == 'constrained_lqr':
-        raise NotImplementedError("Environment 'constrained_lqr' not implemented yet.")
+    elif name.startswith('constrained_lqr'):        
+        x1 = model.set_variable('_x', 'x1')
+        x2 = model.set_variable('_x', 'x2')
+        u = model.set_variable('_u', 'u')
+        
+        # Get system matrices
+        A = cfgs.A
+        B = cfgs.B
+
+        # Dynamics
+        model.set_rhs('x1', A[0][0] * x1 + A[0][1] * x2 + B[0] *u)
+        model.set_rhs('x2', A[1][0] * x1 + A[1][1] * x2 + B[1] *u)
+        model.setup()
+
+        # MPC controller
+        mpc_T = MPC(model)
+
+        # lterm = 1 * x1 * x1 + x2 * x2 + u * u
+        lterm = 1.0 * x1**2 + 1.0 * x2**2 + 1.0 * u**2
+        mpc_T.set_objective(lterm=lterm, mterm=0*x1)
+
+        cfgs.mpc.n_horizon = cfgs.N  # First MPC controller has the full horizon.
+        mpc_T.set_param(**cfgs.mpc.todict())
+
+        # Control constraints
+        mpc_T.bounds['lower','_u','u'] = cfgs.u_lb
+        mpc_T.bounds['upper','_u','u'] = cfgs.u_ub
+
+        # State constraints
+        mpc_T.bounds['lower','_x','x1'] = cfgs.x_lb[0]
+        mpc_T.bounds['lower','_x','x2'] = cfgs.x_lb[1]
+        mpc_T.bounds['upper','_x','x1'] = cfgs.x_ub[0]
+        mpc_T.bounds['upper','_x','x2'] = cfgs.x_ub[1]
+
+        
+
     
     mpc_list = [mpc_T] # List of MPC controllers (different H)
     # Before setting up, copy to full horizon MPC
@@ -112,6 +141,15 @@ def constructor(name: str, cfgs: Config) -> Tuple[Model, List[MPC], Simulator]:
         mpc_h = deepcopy(mpc_T)
         mpc_h.set_param(n_horizon=h)
         mpc_list.append(mpc_h)
+    
+    if hasattr(cfgs, 'x_lb') and hasattr(cfgs, 'x_ub'):     
+        assert cfgs.N == cfgs.mpc.n_horizons[0], "Full horizon N must match first MPC horizon."
+        # First MPC solves the conservative problem   
+        e = cfgs.epsilon
+        mpc_T.bounds['lower','_x','x1'] += e
+        mpc_T.bounds['lower','_x','x2'] += e
+        mpc_T.bounds['upper','_x','x1'] -= e
+        mpc_T.bounds['upper','_x','x2'] -= e
     
     # Set them up.
     for mpc in mpc_list:
