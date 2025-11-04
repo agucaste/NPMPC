@@ -31,7 +31,7 @@ def constructor(name: str, cfgs: Config) -> Tuple[Model, List[MPC], Simulator]:
     assert name in valid_environments, f"Environment '{name}' not implemented."    
     
     # Create a continuous time model.
-    model = Model('continuous') if name != 'constrained_lqr' else Model('discrete')
+    model = Model('continuous') if not name.startswith('constrained_lqr') else Model('discrete')
     if name == 'pendulum':
         # States: angle θ, angular velocity ω
         theta = model.set_variable('_x', 'theta')

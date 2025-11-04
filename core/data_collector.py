@@ -71,6 +71,7 @@ def count_infeasible_steps(x: NDArray, cfgs: Config, mode: str = 'l1') -> int:
             lb_count = np.maximum(cfgs.x_lb - x[t], 0)
             ub_count = np.maximum(x[t] - cfgs.x_ub, 0)
             norm += lb_count.sum(where=lb_count>0) + ub_count.sum(where=ub_count>0)
+    
     return count if mode == 'counts' else norm
     
 

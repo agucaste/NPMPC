@@ -277,6 +277,8 @@ class Evaluator():
         plt.title(f'Trajectories for different controllers')
         plt.legend()
         plt.tight_layout()
+        if path is None:
+            path = '.'
         plt.savefig(os.path.join(path, filename))
         # plt.show()
 
@@ -301,7 +303,7 @@ if __name__ == "__main__":
     })
 
     # Define the system and data collector
-    env = 'constrained_lqr_1'  # 'min_time'    
+    env = 'constrained_lqr_2'  # 'min_time'    
     cfgs = get_default_kwargs_yaml(algo='', env_id=env)
     print(f"Configs are {cfgs}")
 
@@ -323,7 +325,7 @@ if __name__ == "__main__":
         
     # G = [5, 9, 11, 15]  # [5, 7, 9, 11]  # [3, 5, 7, 9, 11]  # grid anchors per dimension
     G = cfgs.G
-    G = [1]
+    G = []
     regressors = [NNRegressor(nx=model.x.shape[0], nu=model.u.shape[0]) for _ in G]
     
     if hasattr(cfgs, 'x_lb') and hasattr(cfgs, 'x_ub'):
@@ -364,17 +366,21 @@ if __name__ == "__main__":
         evaluator.evaluate(model, nn, simulator, cfgs, sampler, M)
     
     # Plot results.
+    try:
+        size = nn.size
+    except NameError:        
+        size = 0
     
     # We plot infeasibility only if the config file has state bounds.
     plot_infeasibility = hasattr(cfgs, 'x_lb') and hasattr(cfgs, 'x_ub')
 
-    evaluator.plot_boxplots(path=path, filename=f'bp_{env}_d_{nn.size}_M_{M}.pdf', title_prefix=f"{capitalize(env)}: ",
+    evaluator.plot_boxplots(path=path, filename=f'bp_{env}_d_{size}_M_{M}.pdf', title_prefix=f"{capitalize(env)}: ",
                             plot_infeasibility=plot_infeasibility)
-    evaluator.plot_tradeoff(path=path, filename=f'tradeoff_{env}_d_{nn.size}_M_{M}.pdf',
+    evaluator.plot_tradeoff(path=path, filename=f'tradeoff_{env}_d_{size}_M_{M}.pdf',
                             title=f"{capitalize(env)}: Computation Time/Cost-to-go trade-off")
-    evaluator.plot_trajectories(path=path, filename=f'trajectories_{env}_d_{nn.size}_M_{M}.pdf')
+    evaluator.plot_trajectories(path=path, filename=f'trajectories_{env}_d_{size}_M_{M}.pdf')
 
-    evaluator.dump_stats(path=path, filename=f'stats_{env}_d_{nn.size}_M_{M}.pkl')
+    evaluator.dump_stats(path=path, filename=f'stats_{env}_d_{size}_M_{M}.pkl')
 
 
 
