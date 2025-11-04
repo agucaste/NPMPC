@@ -255,7 +255,7 @@ class Evaluator():
         plt.xlabel("Per-step Computation Time (ms)", fontsize='large')
         plt.ylabel("Normalized Gap", fontsize='large')
         # title =  if title is None else title
-        plt.title(title if title is None else "Trade-off between computation time and cost-to-go", fontsize='large')
+        plt.title(title if title is not None else "Trade-off between computation time and cost-to-go", fontsize='large')
         plt.legend(fontsize='large')
         plt.tight_layout()
         plt.savefig(os.path.join(path, filename))

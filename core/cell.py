@@ -1,3 +1,46 @@
+import numpy as np
+
+from typing import Tuple, Any, List
+from numpy.typing import NDArray
+
 class Cell:
-    def __init__(self):
-        pass
+    """
+    
+    """
+    def __init__(self, center: NDArray, radius: float, split_factor: int = 3) -> None:
+        self.c = center
+        self.r = radius
+        self.dim = center.shape[0]
+        # Check that splitting number is odd.
+        assert isinstance(split_factor, int) and split_factor % 2 == 1
+        self.split_factor = split_factor
+
+
+    def is_certified(self, r: float) -> bool:
+        """
+        Checks whether the cell is 'enclosed' by a ball centered at c, with radius r.
+        """
+        return r >= self.r
+    
+    def split(self) -> List[Any]:
+        """
+        Splits a cell into split_factor ^ dim sub-cells"""
+        r = self.r
+        c = self.c
+        s = self.split_factor
+        
+        new_r = self.r / self.split_factor
+
+        z = [np.linspace(c[i] - r + r/s, c[i] + r - r/s, s) for i in range(self.dim)]
+        grid = np.meshgrid(*z)
+        new_centers = np.c_[tuple(g.ravel() for g in grid)]
+
+        return [Cell(new_c, new_r, self.split_factor) for new_c in new_centers]
+    
+if __name__ == "__main__":
+    cell = Cell(center=np.array([0.0, 0.0]), radius=3.0, split_factor=3)
+    centers = cell.split()
+    print("New centers:")
+    print(centers)
+    
+    
