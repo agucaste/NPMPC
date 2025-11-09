@@ -13,14 +13,14 @@ class NNRegressor(object):
     nx: int  # state dimension
     nu: int  # control dimension
 
-    def __init__(self, nx: int, nu: int):
+    def __init__(self, nx: int, nu: int, k: int = 1):
         self.x = fa.IndexFlatL2(nx)  # the state data, shape (N, nx)
         self.u = []
 
         self.nx = nx  # state dimension
         self.nu = nu  # control dimension
 
-        self._k: int = 1  # number of neighbors
+        self._k: int = k  # number of neighbors
     
     def set_k(self, k: int):
         """
@@ -37,6 +37,10 @@ class NNRegressor(object):
     @property
     def size(self) -> int:
         return self.x.ntotal  # type: ignore
+    
+    @property
+    def name(self) -> str:
+        return f'NN_{self._k}_{self.size}'
 
     def add_data(self, x: list | np.ndarray, u: list | np.ndarray):
         """
@@ -60,10 +64,9 @@ class NNRegressor(object):
         self.x.add(x)  # type: ignore         
         for c in u:
             self.u.append(c.reshape(1, -1))
-            #TODO: Can i make this work well, maybe without concat.
 
-        print(f'how many us? {len(self.u)}')
-        print(f'how many x? {self.x.ntotal}')  # type: ignore
+        # print(f'how many us? {len(self.u)}')
+        # print(f'how many x? {self.x.ntotal}')  # type: ignore
     
     def query(self, xq: np.ndarray) -> Tuple[NDArray, NDArray]:
         """
@@ -99,7 +102,76 @@ class NNRegressor(object):
                 return np.mean(np.array([self.u[j] for j in I]), axis=0)
             else:
                 raise ValueError(f"Unknown weighting method: '{w}'")
-            
+
+
+class NNPolicy(NNRegressor):
+    """
+    A nearest neighbor policy class that extends NNRegressor.
+    The main difference is:
+        - It adds (xi, ui, Ji, ri) to the dataset (state, control, cost-to-go, feasibility radius).
+        - When picking actions, it is greedy w.r.t. upper bound of cost-to-go.
+            - This is achieved by:
+                1. performing similarity search to get the top neighbors,
+                2. picking the one that minimizes upper bound.
+    """
+
+    J: list[float] # the optimal cost-to-go
+
+    def __init__(self, nx: int, nu: int, k: int = 1, lambd: float = 1.0):
+        self.lambd = lambd  # weight for distance in cost-to-go upper bound
+        super().__init__(nx, nu, k)
+        self.J = []  # cost-to-go
+    
+    def add_data(self, x: list | np.ndarray, u: list | np.ndarray, J: list | np.ndarray):
+        """
+        Adds data to the nearest neighbor regressor.
+        Args:
+            x: list of states, each of shape (T+1, n), T is the episode length, n is state dimension.
+                note this includes the terminal state, which is throwed away.
+            u: list of controls, each of shape (T, m) or (T, ).
+        """
+        super().add_data(x, u)
+        if isinstance(J, list):
+            J = np.concatenate(J, axis=0)
+            self.J = np.concatenate((self.J, J), axis = 0)            
+        elif isinstance(J, np.ndarray):
+            self.J += J.flatten().tolist()
+        else:
+            raise ValueError("J must be a list or numpy array.")
+        
+        print(f"size of x: {self.x.ntotal}\nsize of u: {len(self.u)}\nsize of J: {len(self.J)}")
+        # raise Exception
+        
+    def make_step(self, xq: np.ndarray, w: str = 'equal') -> np.ndarray:
+        """
+        Decides an action based on the state. 
+        The policy is greedy w.r.t. upper bound of cost-to-go:
+            u(x) = u_i, where i = argmin_{i in k-NN(x)} Ji + lambda * ||x - xi||
+        Args:
+            xq: query states, shape (N, n) or (n, ), N is number of queries, n is state dimension.
+            w: weighting method, 'equal' or 'distance'.
+        Returns:
+            u: controls corresponding to the nearest neighbors, shape (N, m) or (m, ) if k=1.
+        """ 
+        D, I = self.query(xq)       
+        D, I = D.squeeze(), I.squeeze()    
+        if self._k == 1:
+            return self.u[I]
+        else:
+            # print(f"Indices of neighbors: {I}, shape: {I.shape},\ndistances: {D}, shape: {D.shape}")
+            # print(f"J has length {len(self.J)}")
+            J_ub = np.array([self.J[i] for i in I]) + self.lambd * D  # Build upper bound
+            i = np.argmin(J_ub)  # Act greedily
+            return self.u[I[i]]
+    
+    @property
+    def name(self) -> str:
+        return f'MINT_{self.size}'
+
+        
+
+
+
     
 
 

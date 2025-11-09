@@ -10,7 +10,7 @@ from do_mpc.model import Model
 from do_mpc.controller import MPC
 from do_mpc.simulator import Simulator
 
-from nn_policy import NNRegressor
+from nn_policy import NNRegressor, NNPolicy
 from config import Config
 from data_collector import run_trajectory, get_trajectory_cost, count_infeasible_steps
 
@@ -67,7 +67,7 @@ class Evaluator():
         if isinstance(controller, MPC):
             key = 'MPC_' + str(controller.settings.n_horizon)
         else:
-            key = f'NN_{controller.k}_D{controller.size}'        
+            key = controller.name        
         self.stats[key] = {'t': [], 'x': [], 'u': [], 'c': [], 'i': []}        
         if not key.startswith('MPC'):
             # Get the size of the dataset
@@ -171,6 +171,8 @@ class Evaluator():
             ax.set_xticks(np.arange(n))
             ax.set_xticklabels(self.stats.keys())
             ax.set_yscale('log')
+            ax.tick_params(axis='x', labelsize='large')
+            ax.tick_params(axis='y', labelsize='large')
             if i == 0:          
                 # ax.set_yscale('linear')
                 # # Get the exponents
@@ -186,12 +188,13 @@ class Evaluator():
             else:
                 # ax.set_yscale('log')
                 ax.set_ylabel('Gap', fontsize='large')
-                ax.set_title(r"Empirical normalized gap $\frac{J^{\pi}-J^{\star}}{J^\star}$", fontsize='large')
+                ax.set_title("Empirical normalized gap", fontsize='large')
                 # ax.set_ylim(bottom=1e-6)
         M = len(self.stats[f'MPC_{T}']['c'])
         
-        title = f"Statistics over M={M} trajectories, horizon T={T}"
-        title = capitalize(title_prefix) + title if title_prefix is not None else title
+        # title = f"Statistics over M={M} trajectories, horizon T={T}"
+        # title = capitalize(title_prefix) + title if title_prefix is not None else title
+        title = capitalize(title_prefix)
         plt.suptitle(title, fontsize='large')
         plt.tight_layout()
         plt.savefig(os.path.join(path, filename))
@@ -237,6 +240,7 @@ class Evaluator():
 
         nn_stats = []
         mpc_stats = []
+        mint_stats = []
 
         self.stats[f'MPC_{T}']['gap'] = [0]
         for key in keys:
@@ -244,14 +248,23 @@ class Evaluator():
             gap = np.median(self.stats[key]['gap'])
             print(f"Controller {key}: median time {t:.4f}s, median gap {gap:.4f}")
             if key.startswith('MPC'):
+                # Don't plot 'best' mpc
+                # if key != f'MPC_{T}':
                 mpc_stats.append((t, gap))
-            else:
+            elif key.startswith('NN'):
                 nn_stats.append((t, gap))
+            elif key.startswith('MINT'):
+                mint_stats.append((t, gap))
+            else:
+                raise KeyError
 
         plt.figure(figsize=(7, 5))
         plt.plot(*zip(*mpc_stats), 's-', c='C0', label='MPC', markersize=13, linewidth=2)
         plt.plot(*zip(*nn_stats), '*-', c='C1', label='NPP (Ours)', markersize=16, linewidth=2)
+        if len(mint_stats) > 0:
+            plt.plot(*zip(*mint_stats), 'd-', c='olivedrab', label='MINT (Ours)', markersize=16, linewidth=2)
         plt.xscale('log')
+        # plt.yscale('log')
         plt.xlabel("Per-step Computation Time (ms)", fontsize='large')
         plt.ylabel("Normalized Gap", fontsize='large')
         # title =  if title is None else title
@@ -303,7 +316,7 @@ if __name__ == "__main__":
     })
 
     # Define the system and data collector
-    env = 'constrained_lqr_2'  # 'min_time'    
+    env = 'pendulum'  # 'min_time'    
     cfgs = get_default_kwargs_yaml(algo='', env_id=env)
     print(f"Configs are {cfgs}")
 
@@ -323,30 +336,47 @@ if __name__ == "__main__":
     mpc_t = mpcs[0]  # Full horizon MPC
     collector = DataCollector(model, mpc_t, simulator, cfgs)
         
-    # G = [5, 9, 11, 15]  # [5, 7, 9, 11]  # [3, 5, 7, 9, 11]  # grid anchors per dimension
+    # Grid anchors per dim.
     G = cfgs.G
-    G = []
     regressors = [NNRegressor(nx=model.x.shape[0], nu=model.u.shape[0]) for _ in G]
+    if cfgs.test_mint:
+        regressors += [NNPolicy(nx=model.x.shape[0], nu=model.u.shape[0], k=10) for _ in G] 
+        G += G
+
+    print(f"Overall G is {G}")
     
     if hasattr(cfgs, 'x_lb') and hasattr(cfgs, 'x_ub'):
         ub = np.array(cfgs.x_ub)
     else:
         ub = 2.0
-    method = 'grid'
-    for nn, g in zip(regressors, G):
-        # Collect data uniformly.
-        data = collector.collect_data(num_trajectories=g**2, lb=-ub, ub=ub, method=method)
-        nn.add_data(data['x'], data['u'])
-
-        filename = f"{env}_{method}{g}_T{cfgs.N}_H{cfgs.mpc.n_horizon}_D{nn.size}.pkl"        
-        collector.save_data(path=os.path.join(path, 'datasets'), filename=filename)
+    # method = 'grid'
+    # for nn, g in zip(regressors, G):
+    #     print(f"Regressor's name before adding data {nn.name}")
+    #     # Collect data uniformly.
+    #     data = collector.collect_data(num_trajectories=g**2, lb=-ub, ub=ub, method=method)
+    #     if nn.name.startswith('NN') or nn.name.startswith('NPP'):
+    #         nn.add_data(data['x'], data['u'])
+    #     else:
+    #         nn.add_data(data['x'], data['u'], data['J'])
+    #     filename = f"{env}_{method}{g}_T{cfgs.N}_H{cfgs.mpc.n_horizon}_D{nn.size}.pkl"        
+    #     collector.save_data(path=os.path.join(path, 'datasets'), filename=filename)
+    # # This is optional!! Clear the data of previous iterations.
+    #     collector.clear_data()
+    #     print(f"Regressor's name after adding data {nn.name}")
+    
+    dir = "/Users/agu/Documents/Pycharm/npmpc/results/pendulum/2025-11-07-19-32-30/datasets"
+    for nn, G in zip(regressors, G):
+        with open(os.path.join(dir, f"pendulum_grid{G}_T100_H100_D2500.pkl"), 'rb') as fp:
+            data = pickle.load(fp)
+            if nn.name.startswith('NPP'):
+                nn.add_data(data['x'], data['u'])
 
         
 
     
 
 
-    M = 100  # Number of trajectories to evaluate 
+    M = cfgs.M  # Number of trajectories to evaluate 
     X0 = np.random.uniform(-ub, ub, size=(M, model.x.shape[0]))
     X0 = X0.reshape((M, model.x.shape[0], 1))    
     sampler = Sampler(X0=X0)

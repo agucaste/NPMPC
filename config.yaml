@@ -1,7 +1,13 @@
 defaults:
+  # Grid anchors per dimension
   G: [3, 5, 7, 9]
   # "True" horizon for the problem
   N: 100
+  # Number of trajectories to evaluate 
+  M: 100
+  # Whether to test the upper bound based policy or not.
+  # If false, only test the 1-NN.
+  test_mint: False  
   mpc:
     # Predictive horizons
     n_horizons: [20]
@@ -45,15 +51,23 @@ constrained_lqr_1:
 constrained_lqr_2:
   # A variation of constrained_lqr_1; X is an L_infinity ball, trying to "stress" MPC.
   # Grid anchors per dimension for NN
-  G: [5, 15, 25, 35]  
+  G: [11, 15, 25]  
   # Horizon
-  N: 50
+  N: 10
+  # Lipschitz constant
+  L_f: 1.1
+  # Beta (for proportional suboptimality)
+  beta: 5
+  # Lambda (for upper bound)
+  lambd: 1
+  # slack
+  eta: 0.01
   # System dynamics
-  A: [[1, 0.1], [0, 1]]
-  B: [0.005, .1]
+  A: [[1.0, 0.1], [0, 1]]
+  B: [0.15, .1]
   # State constraints
-  x_lb: [-6, -1]
-  x_ub: [6, 1]
+  x_lb: [-3, -3]
+  x_ub: [3, 3]
   # Slack
   epsilon: 0.1
   # Control constraints
@@ -61,7 +75,7 @@ constrained_lqr_2:
   u_ub: 2
   # Horizons for mpc
   mpc:
-    n_horizons: [50, 15, 5]
+    n_horizons: [10, 5, 1]
 
 
 
@@ -71,7 +85,7 @@ min_time:
 #  dq = u
 #  where a>0.
   # Grid anchors for NN
-  G: [5, 7, 9, 11]
+  G: [3, 5, 7, 9] # [5, 7, 9, 11]
   # (Full) Problem horizon
   N: 200
   # Bounds on the control
@@ -83,6 +97,7 @@ min_time:
     store_full_solution: False
 
 pendulum:
+  G: [5, 7, 9, 11]
   # Parameters
   # Gravity
   g: 9.82
@@ -92,6 +107,9 @@ pendulum:
   l: 1.0
   # (Full) Problem horizon
   N: 100
+  mpc:
+    # Predictive horizons
+    n_horizons: [20]  # , 10]
   # Bounds on control
   u_lb: -5.0
   u_ub: 5.0
