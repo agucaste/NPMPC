@@ -166,7 +166,7 @@ class NNPolicy(NNRegressor):
     
     @property
     def name(self) -> str:
-        return f'MINT_{self.size}'
+        return f'MINT_{self.size}_k{self.k}_l{self.lambd}'
 
         
 

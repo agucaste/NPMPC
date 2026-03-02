@@ -51,8 +51,8 @@ def constructor(name: str, cfgs: Config) -> Tuple[Model, List[MPC], Simulator]:
 
         # MPC controller
         mpc_T = MPC(model)
-        print(f'config mpc is')
-        print(cfgs.mpc)
+        # print(f'config mpc is')
+        # print(cfgs.mpc)
         cfgs.mpc.n_horizon = cfgs.N  # First MPC controller has the full horizon.
         mpc_T.set_param(**cfgs.mpc.todict())
         

@@ -5,9 +5,18 @@ defaults:
   N: 100
   # Number of trajectories to evaluate 
   M: 100
-  # Whether to test the upper bound based policy or not.
-  # If false, only test the 1-NN.
+  # Whether to use parallelization when collecting data.
+  parallelize_cell_verification: True
+  # Whether to test the upper bound based policy or not. # If false, only test the 1-NN.
   test_mint: False  
+  # If x is not bounded, use this bound for evaluation/data-collection
+  ub_eval: [2.0, 2.0]
+  # Beta (for proportional suboptimality)
+  beta: .1  # 5
+  # Lambda (for upper bound)
+  lambd: 10  
+  # slack
+  eta: 0.01
   mpc:
     # Predictive horizons
     n_horizons: [20]
@@ -91,8 +100,9 @@ min_time:
   # Bounds on the control
   u_lb: -1.0
   u_ub: 1.0
+  beta: .1
   mpc:
-    n_horizons: [100]
+    n_horizons: [100, 50, 20]
     t_step: 0.1
     store_full_solution: False
 
@@ -109,7 +119,7 @@ pendulum:
   N: 100
   mpc:
     # Predictive horizons
-    n_horizons: [20]  # , 10]
+    n_horizons: [30, 20]
   # Bounds on control
   u_lb: -5.0
   u_ub: 5.0

@@ -16,7 +16,7 @@ if CORE_DIR not in sys.path:
     sys.path.insert(0, CORE_DIR)
 
 from config import get_default_kwargs_yaml
-from data_collector import collect_single_trajectory_serial, run_trajectory, collect_single_trajectory, worker_batch
+from data_collector import collect_multiplie_trajectories, collect_single_trajectory_serial, run_trajectory, collect_single_trajectory, worker_batch
 import numpy as np
 from constructor import constructor
 
@@ -34,7 +34,7 @@ if __name__ == '__main__':
     lb, ub = cfgs.x_lb, cfgs.x_ub
     
     n = len(lb)
-    M = 64  # 2048 * 4
+    M = 4096  # * 1024
     X0 = np.random.uniform(lb, ub, size=(M, n)).reshape(M, n, 1)
     # print(X)
 
@@ -68,14 +68,22 @@ if __name__ == '__main__':
     print(f"Total (serial) execution time: {total_time:.2f}")
 
 
-    # Go dirty!!! can we pass one instance of mpc, model, simulator to the parallelizer??
+    # Go dirty!!! can we pass deepcopies of mpc, model, simulator to the parallelizer??
 
     # total_time = time()
+    # model_copy = [model] + [deepcopy(model) for _ in range(NUM_CORES - 1)]
+    # mpc_copy = [mpc] + [deepcopy(mpc) for _ in range(NUM_CORES - 1)]
+    # simulator_copy = [simulator] + [deepcopy(simulator) for _ in range(NUM_CORES - 1)]
+    # time_create = time() - total_time
+    # print(f"\n\n\nCreating the deepcopies took {time_create:.2f}")
     # # args = [(env, X0[i], cfgs.N, lb, ub, cfgs, deepcopy(model), deepcopy(mpc), deepcopy(simulator)) for i in range(M)]
-    # # x0 must be shape (n, 1)
-    # total_time = time()
-
-    # Doesn't work!! -> Go by chunks.
+    # with Pool(processes=NUM_CORES) as pool:
+    #     chunks = np.array_split(X0, NUM_CORES)
+    #     all_results = pool.starmap(collect_multiplie_trajectories,
+    #                                [(chunk, cfgs.N, lb, ub, cfgs, model_copy[i], mpc_copy[i], simulator_copy[i]) for i, chunk in enumerate(chunks)])
+    # total_time = time() - total_time
+    # print(f"Parallelizing by passing deepcopies of models took: {total_time:.2f}\n\n\n\n")
+    # # Doesn't work!! -> Go by chunks.
 
 
     total_time = time()
@@ -91,8 +99,8 @@ if __name__ == '__main__':
     print(f"Praying this works -> time: {total_time}")
 
     data = {k: [r[k] for r in results] for k in results[0].keys()}
-    for k in data.keys():
-        print(f'key: {k}\nlength:{len(data[k])}')
-    print(data[k])
+    # for k in data.keys():
+    #     print(f'key: {k}\nlength:{len(data[k])}')
+    # print(data[k])
 
 

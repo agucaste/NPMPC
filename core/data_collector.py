@@ -290,6 +290,21 @@ def collect_single_trajectory(env: str, x0, steps, lb, ub, cfgs):
     )
     return data
 
+def collect_multiplie_trajectories(X0, steps, lb, ub, cfgs,
+                                     model,
+                                     mpc,
+                                     simulator):
+    """
+    A wrapper to call 'collect_single_trajectory_serial' but for multiple initial points.
+    """    
+    data = {k: [] for k in ['x', 'u', 't', 'c', 'J', 'i', 'd']}
+    n = model.x.shape[0]
+    for x0 in X0:
+        trajectory_data = collect_single_trajectory_serial(x0, steps, lb, ub, cfgs, model, mpc, simulator)
+        for k in data.keys():
+            data[k].append(trajectory_data[k])        
+    return data
+
 def collect_single_trajectory_serial(x0, steps, lb, ub, cfgs,
                                      model,
                                      mpc,
@@ -314,7 +329,10 @@ def collect_single_trajectory_serial(x0, steps, lb, ub, cfgs,
     J = np.cumsum(costs)[:-1]
     i = count_infeasible_steps(x, cfgs)
     c = J[0]
-    d = np.minimum((ub - x[1:]).min(axis=1), (x[1:] - lb).min(axis=1))     
+    if hasattr(cfgs, 'x_ub'):
+        d = np.minimum((ub - x[1:]).min(axis=1), (x[1:] - lb).min(axis=1))     
+    else:
+        d = [None]
     data = dict(
         x=x,
         u=u,
@@ -334,6 +352,27 @@ def worker_batch(env, cfgs, X0_chunk, steps, lb, ub):
     for x0 in X0_chunk:
         results.append(collect_single_trajectory_serial(x0, steps, lb, ub, cfgs, model, mpc, simulator))
     return results
+
+
+def cell_verifier_worker_batch(env, cfgs, cell_chunk, steps, lb, ub, mode='optimality'):
+    model, mpcs, simulator = constructor(env, cfgs)
+    mpc = mpcs[0]
+    beta, lambd, eta = cfgs.beta, cfgs.lambd, cfgs.eta
+    
+    data = {k: [] for k in ['x', 'u', 't', 'c', 'J', 'i', 'd']}
+    traj = []
+
+    for cell in cell_chunk:
+        traj_data = collect_single_trajectory_serial(cell.c.reshape(-1, 1), steps, lb, ub, cfgs, model, mpc, simulator)
+        if mode == 'optimality':
+            J = traj_data['c']
+            r = beta / (2+beta) * lambd
+            cell.certify(r)    
+        for k in data.keys():
+            data[k].append(traj_data[k])
+
+    return data
+
 
 
 if __name__ == "__main__":

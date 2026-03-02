@@ -135,10 +135,12 @@ class Evaluator():
         Makes a histogram of the times taken for each controller.
         """
         # plt.style.use('bmh')
+        from utils import capitalize
+        
         path = '.' if path is None else path
         
         n = len(self.stats)
-        fig, axs = plt.subplots(1, 2, figsize=(3*n, 5))
+        fig, axs = plt.subplots(1, 2, figsize=(3.5 *n, 5))
         
         T = self.steps
         mpc_costs = self.stats[f'MPC_{T}']['c']
@@ -194,6 +196,7 @@ class Evaluator():
         
         # title = f"Statistics over M={M} trajectories, horizon T={T}"
         # title = capitalize(title_prefix) + title if title_prefix is not None else title
+        
         title = capitalize(title_prefix)
         plt.suptitle(title, fontsize='large')
         plt.tight_layout()
@@ -225,7 +228,7 @@ class Evaluator():
 
 
     
-    def plot_tradeoff(self, path: Optional[str] = None, filename: str = 'tradeoff.pdf', title: Optional[str] = None) -> None:
+    def plot_tradeoff(self, path: Optional[str] = None, filename: str = 'tradeoff.pdf', title: Optional[str] = None, log_y: bool = False) -> None:
         """
         Plots the trade-off between online computation times (x-axis)
         and cost-to-go (y-axis) for each controller family (MPC and NN)"""
@@ -271,6 +274,8 @@ class Evaluator():
         plt.title(title if title is not None else "Trade-off between computation time and cost-to-go", fontsize='large')
         plt.legend(fontsize='large')
         plt.tight_layout()
+        if log_y:
+            plt.yscale('log')
         plt.savefig(os.path.join(path, filename))
         # plt.show()
         
@@ -316,7 +321,7 @@ if __name__ == "__main__":
     })
 
     # Define the system and data collector
-    env = 'pendulum'  # 'min_time'    
+    env = 'min_time'  # 'min_time'    
     cfgs = get_default_kwargs_yaml(algo='', env_id=env)
     print(f"Configs are {cfgs}")
 
@@ -329,7 +334,7 @@ if __name__ == "__main__":
     os.makedirs(path, exist_ok=True)
     
     with open(os.path.join(path, 'config.json'), encoding='utf-8', mode='w') as f:
-                f.write(cfgs.tojson())
+        f.write(cfgs.tojson())
     
     # Create the system model and MPC controllers
     model, mpcs, simulator = constructor(env, cfgs)
@@ -349,27 +354,27 @@ if __name__ == "__main__":
         ub = np.array(cfgs.x_ub)
     else:
         ub = 2.0
-    # method = 'grid'
-    # for nn, g in zip(regressors, G):
-    #     print(f"Regressor's name before adding data {nn.name}")
-    #     # Collect data uniformly.
-    #     data = collector.collect_data(num_trajectories=g**2, lb=-ub, ub=ub, method=method)
-    #     if nn.name.startswith('NN') or nn.name.startswith('NPP'):
-    #         nn.add_data(data['x'], data['u'])
-    #     else:
-    #         nn.add_data(data['x'], data['u'], data['J'])
-    #     filename = f"{env}_{method}{g}_T{cfgs.N}_H{cfgs.mpc.n_horizon}_D{nn.size}.pkl"        
-    #     collector.save_data(path=os.path.join(path, 'datasets'), filename=filename)
-    # # This is optional!! Clear the data of previous iterations.
-    #     collector.clear_data()
-    #     print(f"Regressor's name after adding data {nn.name}")
+    method = 'grid'
+    for nn, g in zip(regressors, G):
+        print(f"Regressor's name before adding data {nn.name}")
+        # Collect data uniformly.
+        data = collector.collect_data(num_trajectories=g**2, lb=-ub, ub=ub, method=method)
+        if nn.name.startswith('NN') or nn.name.startswith('NPP'):
+            nn.add_data(data['x'], data['u'])
+        else:
+            nn.add_data(data['x'], data['u'], data['J'])
+        filename = f"{env}_{method}{g}_T{cfgs.N}_H{cfgs.mpc.n_horizon}_D{nn.size}.pkl"        
+        collector.save_data(path=os.path.join(path, 'datasets'), filename=filename)
+    # This is optional!! Clear the data of previous iterations.
+        collector.clear_data()
+        print(f"Regressor's name after adding data {nn.name}")
     
-    dir = "/Users/agu/Documents/Pycharm/npmpc/results/pendulum/2025-11-07-19-32-30/datasets"
-    for nn, G in zip(regressors, G):
-        with open(os.path.join(dir, f"pendulum_grid{G}_T100_H100_D2500.pkl"), 'rb') as fp:
-            data = pickle.load(fp)
-            if nn.name.startswith('NPP'):
-                nn.add_data(data['x'], data['u'])
+    # dir = "/Users/agu/Documents/Pycharm/npmpc/results/pendulum/2025-11-07-19-32-30/datasets"
+    # for nn, G in zip(regressors, G):
+    #     with open(os.path.join(dir, f"pendulum_grid{G}_T100_H100_D2500.pkl"), 'rb') as fp:
+    #         data = pickle.load(fp)
+    #         if nn.name.startswith('NPP'):
+    #             nn.add_data(data['x'], data['u'])
 
         
 
