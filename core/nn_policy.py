@@ -1,3 +1,7 @@
+"""
+Author: Agustin Castellano (@agucaste)
+"""
+
 import numpy as np
 import faiss as fa
 

@@ -1,3 +1,7 @@
+"""
+Author: Agustin Castellano (@agucaste)
+"""
+
 import os, time
 import numpy as np
 from constructor import constructor

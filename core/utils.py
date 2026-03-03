@@ -1,3 +1,7 @@
+"""
+Author: Agustin Castellano (@agucaste)
+"""
+
 def capitalize(s: str) -> str:
     """Return s with its first character uppercased.
 

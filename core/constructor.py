@@ -1,3 +1,7 @@
+"""
+Author: Agustin Castellano (@agucaste)
+"""
+
 import numpy as np
 from matplotlib import pyplot as plt
 from copy import deepcopy

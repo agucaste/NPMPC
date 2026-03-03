@@ -1,4 +1,8 @@
-"""Implementation of Config."""
+"""
+Author: Agustin Castellano (@agucaste)
+
+Implementation of Config.
+"""
 
 from __future__ import annotations
 

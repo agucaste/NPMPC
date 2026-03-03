@@ -1,3 +1,8 @@
+"""
+Author: Agustin Castellano (@agucaste)
+"""
+
+
 import os, pickle, warnings
 from time import time
 
