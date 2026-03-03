@@ -9,8 +9,6 @@ conda env create -f conda-recipe.yaml
 conda activate npmpc
 ```
 
-Adjust the environment name if your conda recipe defines a different one.
-
 ## Project structure
 
 - **core/nn_policy.py**: implements the `NNRegressor` (1 nearest-neighbor regressor) and `NNPolicy` (greedy policy w.r.t. the upper bound).
@@ -57,7 +55,7 @@ Notes:
 ## Contact
 Contact: [acaste11@jhu.edu](mailto:acaste11@jhu.edu)
 
-### Citation
+## Citation
 If you use this code, please cite:
 ```bibtex
 @article{castellano2025data,
