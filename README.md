@@ -58,10 +58,11 @@ Contact: [acaste11@jhu.edu](mailto:acaste11@jhu.edu)
 ## Citation
 If you use this code, please cite:
 ```bibtex
-@article{castellano2025data,
+@inproceedings{castellano2025data,
 	title={Data-driven Acceleration of MPC with Guarantees},
 	author={Castellano, Agustin and Pan, Shijie and Mallada, Enrique},
-	journal={arXiv preprint arXiv:2511.13588},
-	year={2025}
+	booktitle={Learning for Dynamics and Control Conference},
+    year={2026},
+    organization={PMLR}
 }
 ```
