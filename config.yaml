@@ -119,9 +119,9 @@ pendulum:
   N: 100
   mpc:
     # Predictive horizons
-    n_horizons: [30, 20]
+    n_horizons: [30, 20, 10]
   # Bounds on control
   u_lb: -5.0
   u_ub: 5.0
-
+k
 

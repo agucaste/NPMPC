@@ -5,8 +5,7 @@ Author: Agustin Castellano (@agucaste)
 import numpy as np
 import faiss as fa
 
-from constructor import constructor
-from config import get_default_kwargs_yaml
+
 
 from typing import Tuple
 from numpy.typing import NDArray
@@ -44,27 +43,29 @@ class NNRegressor(object):
     
     @property
     def name(self) -> str:
-        return f'NN_{self._k}_{self.size}'
+        return f'MINT_{self.size}'
 
-    def add_data(self, x: list | np.ndarray, u: list | np.ndarray):
+    def add_data(self, x: list | np.ndarray, u: list | np.ndarray, drop_xn: bool = False):
         """
         Adds data to the nearest neighbor regressor.
         Args:
             x: list of states, each of shape (T+1, n), T is the episode length, n is state dimension.
                 note this includes the terminal state, which is throwed away.
             u: list of controls, each of shape (T, m) or (T, ).
+            drop_xn: whether to drop the final state (if it comes from MPC)
         """
-        if isinstance(x, list):          
-            x = np.array([xi[:-1] for xi in x])  # (num_trajectories, T, n)
+        if isinstance(x, list):                      
+            x = np.array([xi[:-1] for xi in x]) if drop_xn else np.array([xi[:] for xi in x])  # (num_trajectories, T, n)
             x = np.concatenate(x, axis=0)
         else:
-            x = x[:-1]
+            if drop_xn:
+                x = x[:-1]
         if isinstance(u, list):
             u = np.concatenate(u, axis=0)
         # Throw away last point
-        print(f"Adding data of size x: {x.shape}, u: {u.shape}")
+        # print(f"Adding data of size x: {x.shape}, u: {u.shape}")
         assert x.shape[0] == u.shape[0]
-        print(f"x shape: {x.shape}, u shape: {u.shape}")
+        # print(f"x shape: {x.shape}, u shape: {u.shape}")
         self.x.add(x)  # type: ignore         
         for c in u:
             self.u.append(c.reshape(1, -1))
@@ -80,7 +81,8 @@ class NNRegressor(object):
         Returns:
             i: index corresponding to the nearest neighbor, shape (k, )
         """
-        D, I = self.x.search(xq.T, self._k)  # type: ignore # actual search
+        k = min(self._k, self.size)
+        D, I = self.x.search(xq.T, k)  # type: ignore # actual search
         return D, I
         
     def make_step(self, xq: np.ndarray, w: str = 'equal') -> np.ndarray:
@@ -108,7 +110,7 @@ class NNRegressor(object):
                 raise ValueError(f"Unknown weighting method: '{w}'")
 
 
-class NNPolicy(NNRegressor):
+class MINTPolicy(NNRegressor):
     """
     A nearest neighbor policy class that extends NNRegressor.
     The main difference is:
@@ -159,6 +161,8 @@ class NNPolicy(NNRegressor):
         """ 
         D, I = self.query(xq)       
         D, I = D.squeeze(), I.squeeze()    
+
+        # print(f"Query: {xq}, distances: {D}, indices: {I}")
         if self._k == 1:
             return self.u[I]
         else:
@@ -182,6 +186,8 @@ class NNPolicy(NNRegressor):
 if __name__ == "__main__":
     # Import DataCollector here to avoid circular import when module is imported
     from data_collector import DataCollector, run_trajectory
+    from constructor import constructor
+    from config import get_default_kwargs_yaml
 
     env = 'min_time'
     # Define the system and data collector

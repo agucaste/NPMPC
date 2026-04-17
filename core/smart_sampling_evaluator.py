@@ -19,7 +19,7 @@ from do_mpc.controller import MPC
 from do_mpc.simulator import Simulator
 
 from cell import Cell
-from nn_policy import NNRegressor, NNPolicy
+from nn_policy import NNRegressor, MINTPolicy
 from config import Config
 from data_collector import cell_verifier_worker_batch, collect_single_trajectory_serial, run_trajectory, get_trajectory_cost, count_infeasible_steps
 

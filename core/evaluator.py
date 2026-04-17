@@ -14,7 +14,7 @@ from do_mpc.model import Model
 from do_mpc.controller import MPC
 from do_mpc.simulator import Simulator
 
-from nn_policy import NNRegressor, NNPolicy
+from nn_policy import NNRegressor, MINTPolicy
 from config import Config
 from data_collector import run_trajectory, get_trajectory_cost, count_infeasible_steps
 
@@ -144,7 +144,7 @@ class Evaluator():
         path = '.' if path is None else path
         
         n = len(self.stats)
-        fig, axs = plt.subplots(1, 2, figsize=(3.5 *n, 5))
+        fig, axs = plt.subplots(1, 2, figsize=(3 * n, 5))
         
         T = self.steps
         mpc_costs = self.stats[f'MPC_{T}']['c']
@@ -161,24 +161,46 @@ class Evaluator():
         print(self.stats[f'MPC_{T}']['gap'])
         what_to_plot = ['t_flatten', 'gap']
         for i, ax in enumerate(axs):
-        
-            bp = ax.boxplot([self.stats[key][what_to_plot[i]] for key in self.stats.keys()],
-                            patch_artist=True,
-                            positions=np.arange(n), widths=0.6,
-                            boxprops=dict(color='k'),
-                            medianprops=dict(color='k', linewidth=2),
-                            meanprops=dict(marker="^", markersize=6, markeredgecolor='green',  markerfacecolor='green'),
-                            showmeans=True)
+
+            if what_to_plot[i] == 'gap':
+                bp = ax.boxplot([self.stats[key][what_to_plot[i]] for key in self.stats.keys()],
+                                patch_artist=True,
+                                positions=np.arange(n), widths=0.6,
+                                boxprops=dict(color='k'),
+                                medianprops=dict(color='k', linewidth=2),
+                                meanprops=dict(marker="^", markersize=6, markeredgecolor='green',  markerfacecolor='green'),
+                                showmeans=True)
+                
+                # assign colors one by one
+                for patch, color in zip(bp['boxes'], ['C' + str(i) for i in range(n)]):
+                    patch.set_facecolor(color)        
+                    patch.set_alpha(0.6)
+                ax.set_xticks(np.arange(n))
+                ax.set_xticklabels(self.stats.keys())
+                ax.set_yscale('log')
+                ax.tick_params(axis='x', labelsize='large')
+                ax.tick_params(axis='y', labelsize='large')
             
-            # assign colors one by one
-            for patch, color in zip(bp['boxes'], ['C' + str(i) for i in range(n)]):
-                patch.set_facecolor(color)        
-                patch.set_alpha(0.6)
-            ax.set_xticks(np.arange(n))
-            ax.set_xticklabels(self.stats.keys())
-            ax.set_yscale('log')
-            ax.tick_params(axis='x', labelsize='large')
-            ax.tick_params(axis='y', labelsize='large')
+            else:
+                self.stats[f'MPC_{T}']['gap'] = [0]
+                nn_stats = []
+                mpc_stats = []
+                n = 0
+                for controller, stat in self.stats.items():                    
+                    times = stat['t_flatten']
+                    t = np.median(times)
+
+                    if controller.startswith('MPC'):
+                        mpc_stats.append((n, t))
+                    # elif controller.startswith('NN'):
+                    else:
+                        nn_stats.append((n, t))
+                    n += 1                    
+                ax.plot(*zip(*mpc_stats), 's-', c="#348ABD", label='MPC', markersize=13, linewidth=2)
+                ax.plot(*zip(*nn_stats), '*-', c='#A60628', label='NPP (Ours)', markersize=16, linewidth=2)
+                ax.set_xticks(np.arange(n))
+                ax.set_xticklabels(self.stats.keys())
+                ax.set_yscale('log')    
             if i == 0:          
                 # ax.set_yscale('linear')
                 # # Get the exponents
@@ -239,7 +261,7 @@ class Evaluator():
         path = '.' if path is None else path
         T = self.steps
         assert 'gap' in self.stats[f'MPC_{T}'], "Gaps not computed yet, run plot_boxplots first."
-        plt.style.use('bmh')
+        # plt.style.use('bmh')
 
         keys = list(self.stats.keys())
         nn_controllers = [k for k in keys if not k.startswith('MPC')]
@@ -257,17 +279,19 @@ class Evaluator():
             if key.startswith('MPC'):
                 # Don't plot 'best' mpc
                 # if key != f'MPC_{T}':
+                # if log_y or key != f'MPC_{T}':
                 mpc_stats.append((t, gap))
-            elif key.startswith('NN'):
-                nn_stats.append((t, gap))
-            elif key.startswith('MINT'):
-                mint_stats.append((t, gap))
+            # elif key.startswith('NN'):
             else:
-                raise KeyError
+                nn_stats.append((t, gap))
+            # elif key.startswith('MINT'):
+                # mint_stats.append((t, gap))
+            # else:
+            #     raise KeyError
 
         plt.figure(figsize=(7, 5))
-        plt.plot(*zip(*mpc_stats), 's-', c='C0', label='MPC', markersize=13, linewidth=2)
-        plt.plot(*zip(*nn_stats), '*-', c='C1', label='NPP (Ours)', markersize=16, linewidth=2)
+        plt.plot(*zip(*mpc_stats), 's-', c="#348ABD", label='MPC', markersize=13, linewidth=2)
+        plt.plot(*zip(*nn_stats), '*-', c='#A60628', label='MINT (Ours)', markersize=16, linewidth=2)
         if len(mint_stats) > 0:
             plt.plot(*zip(*mint_stats), 'd-', c='olivedrab', label='MINT (Ours)', markersize=16, linewidth=2)
         plt.xscale('log')
@@ -325,7 +349,7 @@ if __name__ == "__main__":
     })
 
     # Define the system and data collector
-    env = 'min_time'  # 'min_time'    
+    env = 'pendulum'  # 'min_time'    
     cfgs = get_default_kwargs_yaml(algo='', env_id=env)
     print(f"Configs are {cfgs}")
 
@@ -349,8 +373,11 @@ if __name__ == "__main__":
     G = cfgs.G
     regressors = [NNRegressor(nx=model.x.shape[0], nu=model.u.shape[0]) for _ in G]
     if cfgs.test_mint:
-        regressors += [NNPolicy(nx=model.x.shape[0], nu=model.u.shape[0], k=10) for _ in G] 
+        regressors += [MINTPolicy(nx=model.x.shape[0], nu=model.u.shape[0], k=10) for _ in G] 
         G += G
+
+    # Rename regressors named like 'NN_1_###' to 'MINT_###'
+    
 
     print(f"Overall G is {G}")
     
@@ -363,7 +390,7 @@ if __name__ == "__main__":
         print(f"Regressor's name before adding data {nn.name}")
         # Collect data uniformly.
         data = collector.collect_data(num_trajectories=g**2, lb=-ub, ub=ub, method=method)
-        if nn.name.startswith('NN') or nn.name.startswith('NPP'):
+        if nn.name.startswith('NN') or nn.name.startswith('MINT') or nn.name.startswith('NPP'):
             nn.add_data(data['x'], data['u'])
         else:
             nn.add_data(data['x'], data['u'], data['J'])
@@ -415,8 +442,10 @@ if __name__ == "__main__":
 
     evaluator.plot_boxplots(path=path, filename=f'bp_{env}_d_{size}_M_{M}.pdf', title_prefix=f"{capitalize(env)}: ",
                             plot_infeasibility=plot_infeasibility)
+    evaluator.plot_tradeoff(path=path, filename=f'tradeoff_{env}_d_{size}_M_{M}_logy.pdf',
+                            title=f"{capitalize(env)}: Computation Time/Cost-to-go trade-off", log_y=True)
     evaluator.plot_tradeoff(path=path, filename=f'tradeoff_{env}_d_{size}_M_{M}.pdf',
-                            title=f"{capitalize(env)}: Computation Time/Cost-to-go trade-off")
+                            title=f"{capitalize(env)}: Computation Time/Cost-to-go trade-off", log_y=False)
     evaluator.plot_trajectories(path=path, filename=f'trajectories_{env}_d_{size}_M_{M}.pdf')
 
     evaluator.dump_stats(path=path, filename=f'stats_{env}_d_{size}_M_{M}.pkl')

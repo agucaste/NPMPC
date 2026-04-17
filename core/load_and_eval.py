@@ -9,7 +9,7 @@ import numpy as np
 from config import Config, get_default_kwargs_yaml, load_yaml
 from constructor import constructor
 from evaluator import Sampler, Evaluator
-from nn_policy import NNPolicy, NNRegressor
+from nn_policy import MINTPolicy, NNRegressor
 from utils import capitalize
 
 # Pendulum results for paper
@@ -64,7 +64,7 @@ while os.path.exists(f):
     nn.add_data(data['x'], data['u'])
     regressors.append(nn)    
 
-    nn = NNPolicy(nx=model.x.shape[0], nu=model.u.shape[0], k=k, lambd=lambd)
+    nn = MINTPolicy(nx=model.x.shape[0], nu=model.u.shape[0], k=k, lambd=lambd)
     nn.add_data(data['x'], data['u'], data['J'])
     regressors.append(nn)
     
