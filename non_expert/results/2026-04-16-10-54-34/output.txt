@@ -1,0 +1,539 @@
+Converged after 65 iterations.
+Dist has shape (50, 50), q has shape (50,)
+After pruning, we have 21 samples left.
+Adding data of size x: (21, 1), u: (21, 1)
+x shape: (21, 1), u shape: (21, 1)
+size of x: 21
+size of u: 21
+size of J: 21
+Dist has shape (21, 100), q has shape (21,)
+Dist has shape (21, 100), q has shape (21,)
+t=1, number of improving points: 99/100
+Converged after 63 iterations.
+Dist has shape (120, 120), q has shape (120,)
+t=1, After pruning, we have 44 samples left.
+Dist has shape (44, 100), q has shape (44,)
+t=2, number of improving points: 100/100
+Converged after 61 iterations.
+Dist has shape (144, 144), q has shape (144,)
+t=2, After pruning, we have 53 samples left.
+Dist has shape (53, 100), q has shape (53,)
+t=3, number of improving points: 100/100
+Converged after 59 iterations.
+Dist has shape (153, 153), q has shape (153,)
+t=3, After pruning, we have 64 samples left.
+Dist has shape (64, 100), q has shape (64,)
+t=4, number of improving points: 100/100
+Converged after 63 iterations.
+Dist has shape (164, 164), q has shape (164,)
+t=4, After pruning, we have 69 samples left.
+Dist has shape (69, 100), q has shape (69,)
+t=5, number of improving points: 100/100
+Converged after 59 iterations.
+Dist has shape (169, 169), q has shape (169,)
+t=5, After pruning, we have 83 samples left.
+Dist has shape (83, 100), q has shape (83,)
+t=6, number of improving points: 100/100
+Converged after 53 iterations.
+Dist has shape (183, 183), q has shape (183,)
+t=6, After pruning, we have 77 samples left.
+Dist has shape (77, 100), q has shape (77,)
+t=7, number of improving points: 100/100
+Converged after 52 iterations.
+Dist has shape (177, 177), q has shape (177,)
+t=7, After pruning, we have 86 samples left.
+Dist has shape (86, 100), q has shape (86,)
+t=8, number of improving points: 100/100
+Converged after 52 iterations.
+Dist has shape (186, 186), q has shape (186,)
+t=8, After pruning, we have 93 samples left.
+Dist has shape (93, 100), q has shape (93,)
+t=9, number of improving points: 100/100
+Converged after 52 iterations.
+Dist has shape (193, 193), q has shape (193,)
+t=9, After pruning, we have 92 samples left.
+Dist has shape (92, 100), q has shape (92,)
+t=10, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (192, 192), q has shape (192,)
+t=10, After pruning, we have 70 samples left.
+Dist has shape (70, 100), q has shape (70,)
+t=11, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (170, 170), q has shape (170,)
+t=11, After pruning, we have 81 samples left.
+Dist has shape (81, 100), q has shape (81,)
+t=12, number of improving points: 100/100
+Converged after 47 iterations.
+Dist has shape (181, 181), q has shape (181,)
+t=12, After pruning, we have 86 samples left.
+Dist has shape (86, 100), q has shape (86,)
+t=13, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (186, 186), q has shape (186,)
+t=13, After pruning, we have 95 samples left.
+Dist has shape (95, 100), q has shape (95,)
+t=14, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (195, 195), q has shape (195,)
+t=14, After pruning, we have 101 samples left.
+Dist has shape (101, 100), q has shape (101,)
+t=15, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (201, 201), q has shape (201,)
+t=15, After pruning, we have 108 samples left.
+Dist has shape (108, 100), q has shape (108,)
+t=16, number of improving points: 100/100
+Converged after 47 iterations.
+Dist has shape (208, 208), q has shape (208,)
+t=16, After pruning, we have 97 samples left.
+Dist has shape (97, 100), q has shape (97,)
+t=17, number of improving points: 100/100
+Converged after 49 iterations.
+Dist has shape (197, 197), q has shape (197,)
+t=17, After pruning, we have 106 samples left.
+Dist has shape (106, 100), q has shape (106,)
+t=18, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (206, 206), q has shape (206,)
+t=18, After pruning, we have 113 samples left.
+Dist has shape (113, 100), q has shape (113,)
+t=19, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (213, 213), q has shape (213,)
+t=19, After pruning, we have 115 samples left.
+Dist has shape (115, 100), q has shape (115,)
+t=20, number of improving points: 100/100
+Converged after 47 iterations.
+Dist has shape (215, 215), q has shape (215,)
+t=20, After pruning, we have 122 samples left.
+Adding data of size x: (122, 1), u: (122, 1)
+x shape: (122, 1), u shape: (122, 1)
+size of x: 122
+size of u: 122
+size of J: 122
+Dist has shape (122, 100), q has shape (122,)
+Dist has shape (122, 100), q has shape (122,)
+t=21, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (222, 222), q has shape (222,)
+t=21, After pruning, we have 130 samples left.
+Dist has shape (130, 100), q has shape (130,)
+t=22, number of improving points: 100/100
+Converged after 47 iterations.
+Dist has shape (230, 230), q has shape (230,)
+t=22, After pruning, we have 137 samples left.
+Dist has shape (137, 100), q has shape (137,)
+t=23, number of improving points: 100/100
+Converged after 47 iterations.
+Dist has shape (237, 237), q has shape (237,)
+t=23, After pruning, we have 146 samples left.
+Dist has shape (146, 100), q has shape (146,)
+t=24, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (246, 246), q has shape (246,)
+t=24, After pruning, we have 158 samples left.
+Dist has shape (158, 100), q has shape (158,)
+t=25, number of improving points: 100/100
+Converged after 47 iterations.
+Dist has shape (258, 258), q has shape (258,)
+t=25, After pruning, we have 170 samples left.
+Dist has shape (170, 100), q has shape (170,)
+t=26, number of improving points: 100/100
+Converged after 47 iterations.
+Dist has shape (270, 270), q has shape (270,)
+t=26, After pruning, we have 182 samples left.
+Dist has shape (182, 100), q has shape (182,)
+t=27, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (282, 282), q has shape (282,)
+t=27, After pruning, we have 191 samples left.
+Dist has shape (191, 100), q has shape (191,)
+t=28, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (291, 291), q has shape (291,)
+t=28, After pruning, we have 202 samples left.
+Dist has shape (202, 100), q has shape (202,)
+t=29, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (302, 302), q has shape (302,)
+t=29, After pruning, we have 209 samples left.
+Dist has shape (209, 100), q has shape (209,)
+t=30, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (309, 309), q has shape (309,)
+t=30, After pruning, we have 217 samples left.
+Dist has shape (217, 100), q has shape (217,)
+t=31, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (317, 317), q has shape (317,)
+t=31, After pruning, we have 229 samples left.
+Dist has shape (229, 100), q has shape (229,)
+t=32, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (329, 329), q has shape (329,)
+t=32, After pruning, we have 221 samples left.
+Dist has shape (221, 100), q has shape (221,)
+t=33, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (321, 321), q has shape (321,)
+t=33, After pruning, we have 230 samples left.
+Dist has shape (230, 100), q has shape (230,)
+t=34, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (330, 330), q has shape (330,)
+t=34, After pruning, we have 239 samples left.
+Dist has shape (239, 100), q has shape (239,)
+t=35, number of improving points: 100/100
+Converged after 47 iterations.
+Dist has shape (339, 339), q has shape (339,)
+t=35, After pruning, we have 233 samples left.
+Dist has shape (233, 100), q has shape (233,)
+t=36, number of improving points: 100/100
+Converged after 47 iterations.
+Dist has shape (333, 333), q has shape (333,)
+t=36, After pruning, we have 246 samples left.
+Dist has shape (246, 100), q has shape (246,)
+t=37, number of improving points: 100/100
+Converged after 49 iterations.
+Dist has shape (346, 346), q has shape (346,)
+t=37, After pruning, we have 251 samples left.
+Dist has shape (251, 100), q has shape (251,)
+t=38, number of improving points: 100/100
+Converged after 50 iterations.
+Dist has shape (351, 351), q has shape (351,)
+t=38, After pruning, we have 262 samples left.
+Dist has shape (262, 100), q has shape (262,)
+t=39, number of improving points: 100/100
+Converged after 49 iterations.
+Dist has shape (362, 362), q has shape (362,)
+t=39, After pruning, we have 271 samples left.
+Dist has shape (271, 100), q has shape (271,)
+t=40, number of improving points: 100/100
+Converged after 50 iterations.
+Dist has shape (371, 371), q has shape (371,)
+t=40, After pruning, we have 283 samples left.
+Adding data of size x: (283, 1), u: (283, 1)
+x shape: (283, 1), u shape: (283, 1)
+size of x: 283
+size of u: 283
+size of J: 283
+Dist has shape (283, 100), q has shape (283,)
+Dist has shape (283, 100), q has shape (283,)
+t=41, number of improving points: 100/100
+Converged after 49 iterations.
+Dist has shape (383, 383), q has shape (383,)
+t=41, After pruning, we have 291 samples left.
+Dist has shape (291, 100), q has shape (291,)
+t=42, number of improving points: 100/100
+Converged after 50 iterations.
+Dist has shape (391, 391), q has shape (391,)
+t=42, After pruning, we have 295 samples left.
+Dist has shape (295, 100), q has shape (295,)
+t=43, number of improving points: 100/100
+Converged after 49 iterations.
+Dist has shape (395, 395), q has shape (395,)
+t=43, After pruning, we have 306 samples left.
+Dist has shape (306, 100), q has shape (306,)
+t=44, number of improving points: 100/100
+Converged after 50 iterations.
+Dist has shape (406, 406), q has shape (406,)
+t=44, After pruning, we have 318 samples left.
+Dist has shape (318, 100), q has shape (318,)
+t=45, number of improving points: 100/100
+Converged after 49 iterations.
+Dist has shape (418, 418), q has shape (418,)
+t=45, After pruning, we have 326 samples left.
+Dist has shape (326, 100), q has shape (326,)
+t=46, number of improving points: 100/100
+Converged after 49 iterations.
+Dist has shape (426, 426), q has shape (426,)
+t=46, After pruning, we have 332 samples left.
+Dist has shape (332, 100), q has shape (332,)
+t=47, number of improving points: 100/100
+Converged after 49 iterations.
+Dist has shape (432, 432), q has shape (432,)
+t=47, After pruning, we have 345 samples left.
+Dist has shape (345, 100), q has shape (345,)
+t=48, number of improving points: 100/100
+Converged after 49 iterations.
+Dist has shape (445, 445), q has shape (445,)
+t=48, After pruning, we have 351 samples left.
+Dist has shape (351, 100), q has shape (351,)
+t=49, number of improving points: 100/100
+Converged after 49 iterations.
+Dist has shape (451, 451), q has shape (451,)
+t=49, After pruning, we have 362 samples left.
+Dist has shape (362, 100), q has shape (362,)
+t=50, number of improving points: 100/100
+Converged after 50 iterations.
+Dist has shape (462, 462), q has shape (462,)
+t=50, After pruning, we have 371 samples left.
+Dist has shape (371, 100), q has shape (371,)
+t=51, number of improving points: 100/100
+Converged after 49 iterations.
+Dist has shape (471, 471), q has shape (471,)
+t=51, After pruning, we have 372 samples left.
+Dist has shape (372, 100), q has shape (372,)
+t=52, number of improving points: 100/100
+Converged after 49 iterations.
+Dist has shape (472, 472), q has shape (472,)
+t=52, After pruning, we have 376 samples left.
+Dist has shape (376, 100), q has shape (376,)
+t=53, number of improving points: 100/100
+Converged after 50 iterations.
+Dist has shape (476, 476), q has shape (476,)
+t=53, After pruning, we have 386 samples left.
+Dist has shape (386, 100), q has shape (386,)
+t=54, number of improving points: 100/100
+Converged after 49 iterations.
+Dist has shape (486, 486), q has shape (486,)
+t=54, After pruning, we have 368 samples left.
+Dist has shape (368, 100), q has shape (368,)
+t=55, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (468, 468), q has shape (468,)
+t=55, After pruning, we have 342 samples left.
+Dist has shape (342, 100), q has shape (342,)
+t=56, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (442, 442), q has shape (442,)
+t=56, After pruning, we have 351 samples left.
+Dist has shape (351, 100), q has shape (351,)
+t=57, number of improving points: 100/100
+Converged after 47 iterations.
+Dist has shape (451, 451), q has shape (451,)
+t=57, After pruning, we have 357 samples left.
+Dist has shape (357, 100), q has shape (357,)
+t=58, number of improving points: 100/100
+Converged after 47 iterations.
+Dist has shape (457, 457), q has shape (457,)
+t=58, After pruning, we have 356 samples left.
+Dist has shape (356, 100), q has shape (356,)
+t=59, number of improving points: 100/100
+Converged after 46 iterations.
+Dist has shape (456, 456), q has shape (456,)
+t=59, After pruning, we have 358 samples left.
+Dist has shape (358, 100), q has shape (358,)
+t=60, number of improving points: 100/100
+Converged after 46 iterations.
+Dist has shape (458, 458), q has shape (458,)
+t=60, After pruning, we have 364 samples left.
+Adding data of size x: (364, 1), u: (364, 1)
+x shape: (364, 1), u shape: (364, 1)
+size of x: 364
+size of u: 364
+size of J: 364
+Dist has shape (364, 100), q has shape (364,)
+Dist has shape (364, 100), q has shape (364,)
+t=61, number of improving points: 100/100
+Converged after 46 iterations.
+Dist has shape (464, 464), q has shape (464,)
+t=61, After pruning, we have 362 samples left.
+Dist has shape (362, 100), q has shape (362,)
+t=62, number of improving points: 100/100
+Converged after 47 iterations.
+Dist has shape (462, 462), q has shape (462,)
+t=62, After pruning, we have 359 samples left.
+Dist has shape (359, 100), q has shape (359,)
+t=63, number of improving points: 100/100
+Converged after 49 iterations.
+Dist has shape (459, 459), q has shape (459,)
+t=63, After pruning, we have 361 samples left.
+Dist has shape (361, 100), q has shape (361,)
+t=64, number of improving points: 100/100
+Converged after 47 iterations.
+Dist has shape (461, 461), q has shape (461,)
+t=64, After pruning, we have 368 samples left.
+Dist has shape (368, 100), q has shape (368,)
+t=65, number of improving points: 100/100
+Converged after 47 iterations.
+Dist has shape (468, 468), q has shape (468,)
+t=65, After pruning, we have 365 samples left.
+Dist has shape (365, 100), q has shape (365,)
+t=66, number of improving points: 100/100
+Converged after 47 iterations.
+Dist has shape (465, 465), q has shape (465,)
+t=66, After pruning, we have 371 samples left.
+Dist has shape (371, 100), q has shape (371,)
+t=67, number of improving points: 100/100
+Converged after 45 iterations.
+Dist has shape (471, 471), q has shape (471,)
+t=67, After pruning, we have 347 samples left.
+Dist has shape (347, 100), q has shape (347,)
+t=68, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (447, 447), q has shape (447,)
+t=68, After pruning, we have 343 samples left.
+Dist has shape (343, 100), q has shape (343,)
+t=69, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (443, 443), q has shape (443,)
+t=69, After pruning, we have 351 samples left.
+Dist has shape (351, 100), q has shape (351,)
+t=70, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (451, 451), q has shape (451,)
+t=70, After pruning, we have 363 samples left.
+Dist has shape (363, 100), q has shape (363,)
+t=71, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (463, 463), q has shape (463,)
+t=71, After pruning, we have 370 samples left.
+Dist has shape (370, 100), q has shape (370,)
+t=72, number of improving points: 100/100
+Converged after 47 iterations.
+Dist has shape (470, 470), q has shape (470,)
+t=72, After pruning, we have 374 samples left.
+Dist has shape (374, 100), q has shape (374,)
+t=73, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (474, 474), q has shape (474,)
+t=73, After pruning, we have 379 samples left.
+Dist has shape (379, 100), q has shape (379,)
+t=74, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (479, 479), q has shape (479,)
+t=74, After pruning, we have 392 samples left.
+Dist has shape (392, 100), q has shape (392,)
+t=75, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (492, 492), q has shape (492,)
+t=75, After pruning, we have 399 samples left.
+Dist has shape (399, 100), q has shape (399,)
+t=76, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (499, 499), q has shape (499,)
+t=76, After pruning, we have 408 samples left.
+Dist has shape (408, 100), q has shape (408,)
+t=77, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (508, 508), q has shape (508,)
+t=77, After pruning, we have 417 samples left.
+Dist has shape (417, 100), q has shape (417,)
+t=78, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (517, 517), q has shape (517,)
+t=78, After pruning, we have 423 samples left.
+Dist has shape (423, 100), q has shape (423,)
+t=79, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (523, 523), q has shape (523,)
+t=79, After pruning, we have 423 samples left.
+Dist has shape (423, 100), q has shape (423,)
+t=80, number of improving points: 100/100
+Converged after 48 iterations.
+Dist has shape (523, 523), q has shape (523,)
+t=80, After pruning, we have 386 samples left.
+Adding data of size x: (386, 1), u: (386, 1)
+x shape: (386, 1), u shape: (386, 1)
+size of x: 386
+size of u: 386
+size of J: 386
+Dist has shape (386, 100), q has shape (386,)
+Dist has shape (386, 100), q has shape (386,)
+t=81, number of improving points: 100/100
+Converged after 42 iterations.
+Dist has shape (486, 486), q has shape (486,)
+t=81, After pruning, we have 361 samples left.
+Dist has shape (361, 100), q has shape (361,)
+t=82, number of improving points: 100/100
+Converged after 42 iterations.
+Dist has shape (461, 461), q has shape (461,)
+t=82, After pruning, we have 368 samples left.
+Dist has shape (368, 100), q has shape (368,)
+t=83, number of improving points: 100/100
+Converged after 42 iterations.
+Dist has shape (468, 468), q has shape (468,)
+t=83, After pruning, we have 375 samples left.
+Dist has shape (375, 100), q has shape (375,)
+t=84, number of improving points: 100/100
+Converged after 42 iterations.
+Dist has shape (475, 475), q has shape (475,)
+t=84, After pruning, we have 379 samples left.
+Dist has shape (379, 100), q has shape (379,)
+t=85, number of improving points: 100/100
+Converged after 42 iterations.
+Dist has shape (479, 479), q has shape (479,)
+t=85, After pruning, we have 359 samples left.
+Dist has shape (359, 100), q has shape (359,)
+t=86, number of improving points: 100/100
+Converged after 42 iterations.
+Dist has shape (459, 459), q has shape (459,)
+t=86, After pruning, we have 364 samples left.
+Dist has shape (364, 100), q has shape (364,)
+t=87, number of improving points: 100/100
+Converged after 42 iterations.
+Dist has shape (464, 464), q has shape (464,)
+t=87, After pruning, we have 366 samples left.
+Dist has shape (366, 100), q has shape (366,)
+t=88, number of improving points: 100/100
+Converged after 42 iterations.
+Dist has shape (466, 466), q has shape (466,)
+t=88, After pruning, we have 372 samples left.
+Dist has shape (372, 100), q has shape (372,)
+t=89, number of improving points: 100/100
+Converged after 42 iterations.
+Dist has shape (472, 472), q has shape (472,)
+t=89, After pruning, we have 376 samples left.
+Dist has shape (376, 100), q has shape (376,)
+t=90, number of improving points: 100/100
+Converged after 42 iterations.
+Dist has shape (476, 476), q has shape (476,)
+t=90, After pruning, we have 380 samples left.
+Dist has shape (380, 100), q has shape (380,)
+t=91, number of improving points: 100/100
+Converged after 42 iterations.
+Dist has shape (480, 480), q has shape (480,)
+t=91, After pruning, we have 383 samples left.
+Dist has shape (383, 100), q has shape (383,)
+t=92, number of improving points: 100/100
+Converged after 42 iterations.
+Dist has shape (483, 483), q has shape (483,)
+t=92, After pruning, we have 386 samples left.
+Dist has shape (386, 100), q has shape (386,)
+t=93, number of improving points: 100/100
+Converged after 42 iterations.
+Dist has shape (486, 486), q has shape (486,)
+t=93, After pruning, we have 394 samples left.
+Dist has shape (394, 100), q has shape (394,)
+t=94, number of improving points: 100/100
+Converged after 42 iterations.
+Dist has shape (494, 494), q has shape (494,)
+t=94, After pruning, we have 390 samples left.
+Dist has shape (390, 100), q has shape (390,)
+t=95, number of improving points: 100/100
+Converged after 43 iterations.
+Dist has shape (490, 490), q has shape (490,)
+t=95, After pruning, we have 392 samples left.
+Dist has shape (392, 100), q has shape (392,)
+t=96, number of improving points: 100/100
+Converged after 42 iterations.
+Dist has shape (492, 492), q has shape (492,)
+t=96, After pruning, we have 383 samples left.
+Dist has shape (383, 100), q has shape (383,)
+t=97, number of improving points: 100/100
+Converged after 42 iterations.
+Dist has shape (483, 483), q has shape (483,)
+t=97, After pruning, we have 376 samples left.
+Dist has shape (376, 100), q has shape (376,)
+t=98, number of improving points: 100/100
+Converged after 42 iterations.
+Dist has shape (476, 476), q has shape (476,)
+t=98, After pruning, we have 385 samples left.
+Dist has shape (385, 100), q has shape (385,)
+t=99, number of improving points: 100/100
+Converged after 42 iterations.
+Dist has shape (485, 485), q has shape (485,)
+t=99, After pruning, we have 390 samples left.
+Dist has shape (390, 100), q has shape (390,)
+t=100, number of improving points: 100/100
+Converged after 42 iterations.
+Dist has shape (490, 490), q has shape (490,)
+t=100, After pruning, we have 394 samples left.
+Adding data of size x: (394, 1), u: (394, 1)
+x shape: (394, 1), u shape: (394, 1)
+size of x: 394
+size of u: 394
+size of J: 394
+Dist has shape (394, 100), q has shape (394,)

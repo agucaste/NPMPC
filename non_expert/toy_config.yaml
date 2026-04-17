@@ -1,0 +1,27 @@
+defaults:
+  # System growth for x' = a*x + u
+  a: 1.1
+  # System upper bound
+  x_ub: 2.0
+  # Control bound
+  u_ub: 2.0
+  # Discount factor
+  gamma: 0.9
+
+  # Policy parameters
+  # Lambda for the upper bound
+  lambd: 5
+  # std Gaussian noise
+  sigma: 1
+  # K neighbors
+  k: 100
+  # Number of initial samples
+  M0: 50
+  # Number of refinement samples
+  M: 100
+  # Number of iterations of the algorithm
+  max_iter: 100
+  # Tolerance for fixed points
+  q_tol: 1.0e-3
+  # Iterations for fixed point
+  q_iter: 1000

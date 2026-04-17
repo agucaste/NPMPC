@@ -1,0 +1,6 @@
+Value Iteration Converged after 126 steps.
+After pruning, we have 11 samples left.
+size of x: 11
+size of u: 11
+size of J: 11
+t=1, number of improving points: 100/100

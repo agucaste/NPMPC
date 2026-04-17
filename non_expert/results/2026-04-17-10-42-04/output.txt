@@ -1,0 +1,1149 @@
+Value Iteration Converged after 70 steps.
+After pruning, we have 13 samples left.
+size of x: 13
+size of u: 13
+size of J: 13
+t=1, number of improving points: 99/100
+Value Iteration Converged after 59 steps.
+t=1, After pruning, we have 41 samples left.
+t=2, number of improving points: 99/100
+Value Iteration Converged after 60 steps.
+t=2, After pruning, we have 65 samples left.
+t=3, number of improving points: 95/100
+Value Iteration Converged after 58 steps.
+t=3, After pruning, we have 71 samples left.
+t=4, number of improving points: 100/100
+Value Iteration Converged after 61 steps.
+t=4, After pruning, we have 84 samples left.
+t=5, number of improving points: 100/100
+Value Iteration Converged after 61 steps.
+t=5, After pruning, we have 88 samples left.
+t=6, number of improving points: 100/100
+Value Iteration Converged after 49 steps.
+t=6, After pruning, we have 91 samples left.
+t=7, number of improving points: 98/100
+Value Iteration Converged after 51 steps.
+t=7, After pruning, we have 107 samples left.
+t=8, number of improving points: 99/100
+Value Iteration Converged after 50 steps.
+t=8, After pruning, we have 114 samples left.
+t=9, number of improving points: 100/100
+Value Iteration Converged after 49 steps.
+t=9, After pruning, we have 125 samples left.
+t=10, number of improving points: 99/100
+Value Iteration Converged after 50 steps.
+t=10, After pruning, we have 126 samples left.
+t=11, number of improving points: 100/100
+Value Iteration Converged after 50 steps.
+t=11, After pruning, we have 139 samples left.
+t=12, number of improving points: 98/100
+Value Iteration Converged after 59 steps.
+t=12, After pruning, we have 145 samples left.
+t=13, number of improving points: 100/100
+Value Iteration Converged after 59 steps.
+t=13, After pruning, we have 150 samples left.
+t=14, number of improving points: 100/100
+Value Iteration Converged after 54 steps.
+t=14, After pruning, we have 154 samples left.
+t=15, number of improving points: 100/100
+Value Iteration Converged after 52 steps.
+t=15, After pruning, we have 163 samples left.
+t=16, number of improving points: 99/100
+Value Iteration Converged after 54 steps.
+t=16, After pruning, we have 164 samples left.
+t=17, number of improving points: 100/100
+Value Iteration Converged after 56 steps.
+t=17, After pruning, we have 185 samples left.
+t=18, number of improving points: 99/100
+Value Iteration Converged after 57 steps.
+t=18, After pruning, we have 192 samples left.
+t=19, number of improving points: 100/100
+Value Iteration Converged after 56 steps.
+t=19, After pruning, we have 198 samples left.
+t=20, number of improving points: 100/100
+Value Iteration Converged after 52 steps.
+t=20, After pruning, we have 201 samples left.
+t=21, number of improving points: 99/100
+Value Iteration Converged after 53 steps.
+t=21, After pruning, we have 210 samples left.
+t=22, number of improving points: 97/100
+Value Iteration Converged after 53 steps.
+t=22, After pruning, we have 220 samples left.
+t=23, number of improving points: 99/100
+Value Iteration Converged after 53 steps.
+t=23, After pruning, we have 232 samples left.
+t=24, number of improving points: 98/100
+Value Iteration Converged after 52 steps.
+t=24, After pruning, we have 240 samples left.
+t=25, number of improving points: 98/100
+Value Iteration Converged after 53 steps.
+t=25, After pruning, we have 245 samples left.
+t=26, number of improving points: 100/100
+Value Iteration Converged after 55 steps.
+t=26, After pruning, we have 257 samples left.
+t=27, number of improving points: 97/100
+Value Iteration Converged after 53 steps.
+t=27, After pruning, we have 266 samples left.
+t=28, number of improving points: 100/100
+Value Iteration Converged after 54 steps.
+t=28, After pruning, we have 275 samples left.
+t=29, number of improving points: 99/100
+Value Iteration Converged after 54 steps.
+t=29, After pruning, we have 281 samples left.
+t=30, number of improving points: 99/100
+Value Iteration Converged after 53 steps.
+t=30, After pruning, we have 286 samples left.
+t=31, number of improving points: 100/100
+Value Iteration Converged after 53 steps.
+t=31, After pruning, we have 289 samples left.
+t=32, number of improving points: 100/100
+Value Iteration Converged after 54 steps.
+t=32, After pruning, we have 296 samples left.
+t=33, number of improving points: 98/100
+Value Iteration Converged after 54 steps.
+t=33, After pruning, we have 253 samples left.
+t=34, number of improving points: 99/100
+Value Iteration Converged after 56 steps.
+t=34, After pruning, we have 262 samples left.
+t=35, number of improving points: 99/100
+Value Iteration Converged after 58 steps.
+t=35, After pruning, we have 260 samples left.
+t=36, number of improving points: 98/100
+Value Iteration Converged after 42 steps.
+t=36, After pruning, we have 264 samples left.
+t=37, number of improving points: 99/100
+Value Iteration Converged after 60 steps.
+t=37, After pruning, we have 269 samples left.
+t=38, number of improving points: 100/100
+Value Iteration Converged after 57 steps.
+t=38, After pruning, we have 272 samples left.
+t=39, number of improving points: 100/100
+Value Iteration Converged after 56 steps.
+t=39, After pruning, we have 277 samples left.
+t=40, number of improving points: 98/100
+Value Iteration Converged after 48 steps.
+t=40, After pruning, we have 281 samples left.
+t=41, number of improving points: 100/100
+Value Iteration Converged after 56 steps.
+t=41, After pruning, we have 287 samples left.
+t=42, number of improving points: 98/100
+Value Iteration Converged after 50 steps.
+t=42, After pruning, we have 290 samples left.
+t=43, number of improving points: 98/100
+Value Iteration Converged after 47 steps.
+t=43, After pruning, we have 295 samples left.
+t=44, number of improving points: 99/100
+Value Iteration Converged after 52 steps.
+t=44, After pruning, we have 297 samples left.
+t=45, number of improving points: 96/100
+Value Iteration Converged after 48 steps.
+t=45, After pruning, we have 303 samples left.
+t=46, number of improving points: 98/100
+Value Iteration Converged after 53 steps.
+t=46, After pruning, we have 310 samples left.
+t=47, number of improving points: 99/100
+Value Iteration Converged after 54 steps.
+t=47, After pruning, we have 310 samples left.
+t=48, number of improving points: 98/100
+Value Iteration Converged after 37 steps.
+t=48, After pruning, we have 315 samples left.
+t=49, number of improving points: 100/100
+Value Iteration Converged after 45 steps.
+t=49, After pruning, we have 325 samples left.
+t=50, number of improving points: 99/100
+Value Iteration Converged after 49 steps.
+t=50, After pruning, we have 325 samples left.
+t=51, number of improving points: 98/100
+Value Iteration Converged after 45 steps.
+t=51, After pruning, we have 332 samples left.
+t=52, number of improving points: 96/100
+Value Iteration Converged after 57 steps.
+t=52, After pruning, we have 338 samples left.
+t=53, number of improving points: 100/100
+Value Iteration Converged after 55 steps.
+t=53, After pruning, we have 347 samples left.
+t=54, number of improving points: 100/100
+Value Iteration Converged after 54 steps.
+t=54, After pruning, we have 353 samples left.
+t=55, number of improving points: 99/100
+Value Iteration Converged after 52 steps.
+t=55, After pruning, we have 353 samples left.
+t=56, number of improving points: 100/100
+Value Iteration Converged after 51 steps.
+t=56, After pruning, we have 355 samples left.
+t=57, number of improving points: 97/100
+Value Iteration Converged after 43 steps.
+t=57, After pruning, we have 363 samples left.
+t=58, number of improving points: 99/100
+Value Iteration Converged after 47 steps.
+t=58, After pruning, we have 374 samples left.
+t=59, number of improving points: 100/100
+Value Iteration Converged after 51 steps.
+t=59, After pruning, we have 379 samples left.
+t=60, number of improving points: 98/100
+Value Iteration Converged after 48 steps.
+t=60, After pruning, we have 390 samples left.
+t=61, number of improving points: 97/100
+Value Iteration Converged after 51 steps.
+t=61, After pruning, we have 392 samples left.
+t=62, number of improving points: 99/100
+Value Iteration Converged after 53 steps.
+t=62, After pruning, we have 394 samples left.
+t=63, number of improving points: 100/100
+Value Iteration Converged after 46 steps.
+t=63, After pruning, we have 393 samples left.
+t=64, number of improving points: 99/100
+Value Iteration Converged after 49 steps.
+t=64, After pruning, we have 398 samples left.
+t=65, number of improving points: 100/100
+Value Iteration Converged after 42 steps.
+t=65, After pruning, we have 405 samples left.
+t=66, number of improving points: 99/100
+Value Iteration Converged after 49 steps.
+t=66, After pruning, we have 411 samples left.
+t=67, number of improving points: 100/100
+Value Iteration Converged after 48 steps.
+t=67, After pruning, we have 411 samples left.
+t=68, number of improving points: 99/100
+Value Iteration Converged after 50 steps.
+t=68, After pruning, we have 415 samples left.
+t=69, number of improving points: 99/100
+Value Iteration Converged after 49 steps.
+t=69, After pruning, we have 413 samples left.
+t=70, number of improving points: 99/100
+Value Iteration Converged after 51 steps.
+t=70, After pruning, we have 422 samples left.
+t=71, number of improving points: 99/100
+Value Iteration Converged after 50 steps.
+t=71, After pruning, we have 428 samples left.
+t=72, number of improving points: 100/100
+Value Iteration Converged after 49 steps.
+t=72, After pruning, we have 439 samples left.
+t=73, number of improving points: 100/100
+Value Iteration Converged after 54 steps.
+t=73, After pruning, we have 447 samples left.
+t=74, number of improving points: 98/100
+Value Iteration Converged after 47 steps.
+t=74, After pruning, we have 449 samples left.
+t=75, number of improving points: 98/100
+Value Iteration Converged after 50 steps.
+t=75, After pruning, we have 455 samples left.
+t=76, number of improving points: 100/100
+Value Iteration Converged after 49 steps.
+t=76, After pruning, we have 458 samples left.
+t=77, number of improving points: 98/100
+Value Iteration Converged after 54 steps.
+t=77, After pruning, we have 461 samples left.
+t=78, number of improving points: 100/100
+Value Iteration Converged after 49 steps.
+t=78, After pruning, we have 460 samples left.
+t=79, number of improving points: 96/100
+Value Iteration Converged after 51 steps.
+t=79, After pruning, we have 465 samples left.
+t=80, number of improving points: 100/100
+Value Iteration Converged after 48 steps.
+t=80, After pruning, we have 474 samples left.
+t=81, number of improving points: 100/100
+Value Iteration Converged after 48 steps.
+t=81, After pruning, we have 483 samples left.
+t=82, number of improving points: 100/100
+Value Iteration Converged after 47 steps.
+t=82, After pruning, we have 492 samples left.
+t=83, number of improving points: 97/100
+Value Iteration Converged after 45 steps.
+t=83, After pruning, we have 494 samples left.
+t=84, number of improving points: 99/100
+Value Iteration Converged after 49 steps.
+t=84, After pruning, we have 492 samples left.
+t=85, number of improving points: 100/100
+Value Iteration Converged after 43 steps.
+t=85, After pruning, we have 498 samples left.
+t=86, number of improving points: 99/100
+Value Iteration Converged after 47 steps.
+t=86, After pruning, we have 502 samples left.
+t=87, number of improving points: 100/100
+Value Iteration Converged after 49 steps.
+t=87, After pruning, we have 505 samples left.
+t=88, number of improving points: 98/100
+Value Iteration Converged after 49 steps.
+t=88, After pruning, we have 507 samples left.
+t=89, number of improving points: 99/100
+Value Iteration Converged after 50 steps.
+t=89, After pruning, we have 508 samples left.
+t=90, number of improving points: 99/100
+Value Iteration Converged after 48 steps.
+t=90, After pruning, we have 514 samples left.
+t=91, number of improving points: 99/100
+Value Iteration Converged after 50 steps.
+t=91, After pruning, we have 522 samples left.
+t=92, number of improving points: 100/100
+Value Iteration Converged after 46 steps.
+t=92, After pruning, we have 526 samples left.
+t=93, number of improving points: 97/100
+Value Iteration Converged after 49 steps.
+t=93, After pruning, we have 524 samples left.
+t=94, number of improving points: 99/100
+Value Iteration Converged after 47 steps.
+t=94, After pruning, we have 525 samples left.
+t=95, number of improving points: 99/100
+Value Iteration Converged after 47 steps.
+t=95, After pruning, we have 529 samples left.
+t=96, number of improving points: 98/100
+Value Iteration Converged after 53 steps.
+t=96, After pruning, we have 533 samples left.
+t=97, number of improving points: 97/100
+Value Iteration Converged after 49 steps.
+t=97, After pruning, we have 540 samples left.
+t=98, number of improving points: 100/100
+Value Iteration Converged after 52 steps.
+t=98, After pruning, we have 538 samples left.
+t=99, number of improving points: 99/100
+Value Iteration Converged after 51 steps.
+t=99, After pruning, we have 540 samples left.
+t=100, number of improving points: 98/100
+Value Iteration Converged after 48 steps.
+t=100, After pruning, we have 547 samples left.
+t=101, number of improving points: 98/100
+Value Iteration Converged after 52 steps.
+t=101, After pruning, we have 552 samples left.
+t=102, number of improving points: 98/100
+Value Iteration Converged after 53 steps.
+t=102, After pruning, we have 558 samples left.
+t=103, number of improving points: 98/100
+Value Iteration Converged after 47 steps.
+t=103, After pruning, we have 548 samples left.
+t=104, number of improving points: 97/100
+Value Iteration Converged after 48 steps.
+t=104, After pruning, we have 551 samples left.
+t=105, number of improving points: 98/100
+Value Iteration Converged after 48 steps.
+t=105, After pruning, we have 554 samples left.
+t=106, number of improving points: 98/100
+Value Iteration Converged after 45 steps.
+t=106, After pruning, we have 555 samples left.
+t=107, number of improving points: 100/100
+Value Iteration Converged after 50 steps.
+t=107, After pruning, we have 556 samples left.
+t=108, number of improving points: 98/100
+Value Iteration Converged after 51 steps.
+t=108, After pruning, we have 559 samples left.
+t=109, number of improving points: 100/100
+Value Iteration Converged after 52 steps.
+t=109, After pruning, we have 552 samples left.
+t=110, number of improving points: 98/100
+Value Iteration Converged after 50 steps.
+t=110, After pruning, we have 557 samples left.
+t=111, number of improving points: 100/100
+Value Iteration Converged after 44 steps.
+t=111, After pruning, we have 560 samples left.
+t=112, number of improving points: 98/100
+Value Iteration Converged after 48 steps.
+t=112, After pruning, we have 562 samples left.
+t=113, number of improving points: 100/100
+Value Iteration Converged after 49 steps.
+t=113, After pruning, we have 567 samples left.
+t=114, number of improving points: 99/100
+Value Iteration Converged after 47 steps.
+t=114, After pruning, we have 571 samples left.
+t=115, number of improving points: 99/100
+Value Iteration Converged after 46 steps.
+t=115, After pruning, we have 577 samples left.
+t=116, number of improving points: 99/100
+Value Iteration Converged after 50 steps.
+t=116, After pruning, we have 580 samples left.
+t=117, number of improving points: 100/100
+Value Iteration Converged after 46 steps.
+t=117, After pruning, we have 584 samples left.
+t=118, number of improving points: 98/100
+Value Iteration Converged after 50 steps.
+t=118, After pruning, we have 584 samples left.
+t=119, number of improving points: 99/100
+Value Iteration Converged after 48 steps.
+t=119, After pruning, we have 589 samples left.
+t=120, number of improving points: 99/100
+Value Iteration Converged after 50 steps.
+t=120, After pruning, we have 590 samples left.
+t=121, number of improving points: 98/100
+Value Iteration Converged after 48 steps.
+t=121, After pruning, we have 593 samples left.
+t=122, number of improving points: 97/100
+Value Iteration Converged after 49 steps.
+t=122, After pruning, we have 596 samples left.
+t=123, number of improving points: 99/100
+Value Iteration Converged after 46 steps.
+t=123, After pruning, we have 599 samples left.
+t=124, number of improving points: 100/100
+Value Iteration Converged after 48 steps.
+t=124, After pruning, we have 605 samples left.
+t=125, number of improving points: 99/100
+Value Iteration Converged after 52 steps.
+t=125, After pruning, we have 610 samples left.
+t=126, number of improving points: 100/100
+Value Iteration Converged after 48 steps.
+t=126, After pruning, we have 612 samples left.
+t=127, number of improving points: 98/100
+Value Iteration Converged after 47 steps.
+t=127, After pruning, we have 608 samples left.
+t=128, number of improving points: 99/100
+Value Iteration Converged after 52 steps.
+t=128, After pruning, we have 610 samples left.
+t=129, number of improving points: 100/100
+Value Iteration Converged after 48 steps.
+t=129, After pruning, we have 614 samples left.
+t=130, number of improving points: 100/100
+Value Iteration Converged after 50 steps.
+t=130, After pruning, we have 598 samples left.
+t=131, number of improving points: 99/100
+Value Iteration Converged after 45 steps.
+t=131, After pruning, we have 599 samples left.
+t=132, number of improving points: 99/100
+Value Iteration Converged after 48 steps.
+t=132, After pruning, we have 602 samples left.
+t=133, number of improving points: 100/100
+Value Iteration Converged after 53 steps.
+t=133, After pruning, we have 604 samples left.
+t=134, number of improving points: 100/100
+Value Iteration Converged after 53 steps.
+t=134, After pruning, we have 613 samples left.
+t=135, number of improving points: 100/100
+Value Iteration Converged after 50 steps.
+t=135, After pruning, we have 618 samples left.
+t=136, number of improving points: 99/100
+Value Iteration Converged after 45 steps.
+t=136, After pruning, we have 624 samples left.
+t=137, number of improving points: 100/100
+Value Iteration Converged after 50 steps.
+t=137, After pruning, we have 628 samples left.
+t=138, number of improving points: 97/100
+Value Iteration Converged after 44 steps.
+t=138, After pruning, we have 584 samples left.
+t=139, number of improving points: 100/100
+Value Iteration Converged after 45 steps.
+t=139, After pruning, we have 587 samples left.
+t=140, number of improving points: 98/100
+Value Iteration Converged after 44 steps.
+t=140, After pruning, we have 598 samples left.
+t=141, number of improving points: 99/100
+Value Iteration Converged after 49 steps.
+t=141, After pruning, we have 604 samples left.
+t=142, number of improving points: 100/100
+Value Iteration Converged after 45 steps.
+t=142, After pruning, we have 611 samples left.
+t=143, number of improving points: 98/100
+Value Iteration Converged after 48 steps.
+t=143, After pruning, we have 610 samples left.
+t=144, number of improving points: 99/100
+Value Iteration Converged after 48 steps.
+t=144, After pruning, we have 607 samples left.
+t=145, number of improving points: 100/100
+Value Iteration Converged after 48 steps.
+t=145, After pruning, we have 611 samples left.
+t=146, number of improving points: 100/100
+Value Iteration Converged after 49 steps.
+t=146, After pruning, we have 618 samples left.
+t=147, number of improving points: 99/100
+Value Iteration Converged after 48 steps.
+t=147, After pruning, we have 619 samples left.
+t=148, number of improving points: 97/100
+Value Iteration Converged after 46 steps.
+t=148, After pruning, we have 626 samples left.
+t=149, number of improving points: 98/100
+Value Iteration Converged after 48 steps.
+t=149, After pruning, we have 632 samples left.
+t=150, number of improving points: 98/100
+Value Iteration Converged after 48 steps.
+t=150, After pruning, we have 636 samples left.
+t=151, number of improving points: 99/100
+Value Iteration Converged after 48 steps.
+t=151, After pruning, we have 639 samples left.
+t=152, number of improving points: 98/100
+Value Iteration Converged after 48 steps.
+t=152, After pruning, we have 642 samples left.
+t=153, number of improving points: 100/100
+Value Iteration Converged after 49 steps.
+t=153, After pruning, we have 642 samples left.
+t=154, number of improving points: 100/100
+Value Iteration Converged after 48 steps.
+t=154, After pruning, we have 647 samples left.
+t=155, number of improving points: 99/100
+Value Iteration Converged after 52 steps.
+t=155, After pruning, we have 652 samples left.
+t=156, number of improving points: 99/100
+Value Iteration Converged after 46 steps.
+t=156, After pruning, we have 654 samples left.
+t=157, number of improving points: 98/100
+Value Iteration Converged after 54 steps.
+t=157, After pruning, we have 654 samples left.
+t=158, number of improving points: 100/100
+Value Iteration Converged after 51 steps.
+t=158, After pruning, we have 658 samples left.
+t=159, number of improving points: 100/100
+Value Iteration Converged after 45 steps.
+t=159, After pruning, we have 662 samples left.
+t=160, number of improving points: 98/100
+Value Iteration Converged after 50 steps.
+t=160, After pruning, we have 669 samples left.
+t=161, number of improving points: 97/100
+Value Iteration Converged after 48 steps.
+t=161, After pruning, we have 670 samples left.
+t=162, number of improving points: 100/100
+Value Iteration Converged after 47 steps.
+t=162, After pruning, we have 645 samples left.
+t=163, number of improving points: 100/100
+Value Iteration Converged after 43 steps.
+t=163, After pruning, we have 620 samples left.
+t=164, number of improving points: 98/100
+Value Iteration Converged after 46 steps.
+t=164, After pruning, we have 623 samples left.
+t=165, number of improving points: 97/100
+Value Iteration Converged after 52 steps.
+t=165, After pruning, we have 624 samples left.
+t=166, number of improving points: 100/100
+Value Iteration Converged after 45 steps.
+t=166, After pruning, we have 628 samples left.
+t=167, number of improving points: 100/100
+Value Iteration Converged after 49 steps.
+t=167, After pruning, we have 630 samples left.
+t=168, number of improving points: 100/100
+Value Iteration Converged after 44 steps.
+t=168, After pruning, we have 632 samples left.
+t=169, number of improving points: 99/100
+Value Iteration Converged after 49 steps.
+t=169, After pruning, we have 633 samples left.
+t=170, number of improving points: 100/100
+Value Iteration Converged after 49 steps.
+t=170, After pruning, we have 637 samples left.
+t=171, number of improving points: 96/100
+Value Iteration Converged after 45 steps.
+t=171, After pruning, we have 643 samples left.
+t=172, number of improving points: 98/100
+Value Iteration Converged after 44 steps.
+t=172, After pruning, we have 646 samples left.
+t=173, number of improving points: 99/100
+Value Iteration Converged after 51 steps.
+t=173, After pruning, we have 648 samples left.
+t=174, number of improving points: 100/100
+Value Iteration Converged after 46 steps.
+t=174, After pruning, we have 650 samples left.
+t=175, number of improving points: 99/100
+Value Iteration Converged after 44 steps.
+t=175, After pruning, we have 654 samples left.
+t=176, number of improving points: 100/100
+Value Iteration Converged after 48 steps.
+t=176, After pruning, we have 657 samples left.
+t=177, number of improving points: 98/100
+Value Iteration Converged after 45 steps.
+t=177, After pruning, we have 659 samples left.
+t=178, number of improving points: 99/100
+Value Iteration Converged after 49 steps.
+t=178, After pruning, we have 663 samples left.
+t=179, number of improving points: 100/100
+Value Iteration Converged after 46 steps.
+t=179, After pruning, we have 663 samples left.
+t=180, number of improving points: 100/100
+Value Iteration Converged after 46 steps.
+t=180, After pruning, we have 664 samples left.
+t=181, number of improving points: 97/100
+Value Iteration Converged after 49 steps.
+t=181, After pruning, we have 666 samples left.
+t=182, number of improving points: 99/100
+Value Iteration Converged after 45 steps.
+t=182, After pruning, we have 668 samples left.
+t=183, number of improving points: 99/100
+Value Iteration Converged after 52 steps.
+t=183, After pruning, we have 670 samples left.
+t=184, number of improving points: 98/100
+Value Iteration Converged after 48 steps.
+t=184, After pruning, we have 672 samples left.
+t=185, number of improving points: 100/100
+Value Iteration Converged after 47 steps.
+t=185, After pruning, we have 681 samples left.
+t=186, number of improving points: 98/100
+Value Iteration Converged after 46 steps.
+t=186, After pruning, we have 686 samples left.
+t=187, number of improving points: 99/100
+Value Iteration Converged after 47 steps.
+t=187, After pruning, we have 682 samples left.
+t=188, number of improving points: 98/100
+Value Iteration Converged after 45 steps.
+t=188, After pruning, we have 684 samples left.
+t=189, number of improving points: 98/100
+Value Iteration Converged after 47 steps.
+t=189, After pruning, we have 691 samples left.
+t=190, number of improving points: 100/100
+Value Iteration Converged after 48 steps.
+t=190, After pruning, we have 652 samples left.
+t=191, number of improving points: 99/100
+Value Iteration Converged after 48 steps.
+t=191, After pruning, we have 655 samples left.
+t=192, number of improving points: 98/100
+Value Iteration Converged after 51 steps.
+t=192, After pruning, we have 665 samples left.
+t=193, number of improving points: 99/100
+Value Iteration Converged after 45 steps.
+t=193, After pruning, we have 669 samples left.
+t=194, number of improving points: 98/100
+Value Iteration Converged after 42 steps.
+t=194, After pruning, we have 671 samples left.
+t=195, number of improving points: 98/100
+Value Iteration Converged after 45 steps.
+t=195, After pruning, we have 676 samples left.
+t=196, number of improving points: 99/100
+Value Iteration Converged after 45 steps.
+t=196, After pruning, we have 677 samples left.
+t=197, number of improving points: 98/100
+Value Iteration Converged after 48 steps.
+t=197, After pruning, we have 683 samples left.
+t=198, number of improving points: 99/100
+Value Iteration Converged after 17 steps.
+t=198, After pruning, we have 502 samples left.
+t=199, number of improving points: 100/100
+Value Iteration Converged after 7 steps.
+t=199, After pruning, we have 495 samples left.
+t=200, number of improving points: 99/100
+Value Iteration Converged after 11 steps.
+t=200, After pruning, we have 495 samples left.
+size of x: 495
+size of u: 495
+size of J: 495
+t=201, number of improving points: 98/100
+Value Iteration Converged after 7 steps.
+t=201, After pruning, we have 499 samples left.
+t=202, number of improving points: 96/100
+Value Iteration Converged after 7 steps.
+t=202, After pruning, we have 507 samples left.
+t=203, number of improving points: 98/100
+Value Iteration Converged after 8 steps.
+t=203, After pruning, we have 517 samples left.
+t=204, number of improving points: 98/100
+Value Iteration Converged after 7 steps.
+t=204, After pruning, we have 528 samples left.
+t=205, number of improving points: 97/100
+Value Iteration Converged after 7 steps.
+t=205, After pruning, we have 533 samples left.
+t=206, number of improving points: 95/100
+Value Iteration Converged after 6 steps.
+t=206, After pruning, we have 537 samples left.
+t=207, number of improving points: 97/100
+Value Iteration Converged after 7 steps.
+t=207, After pruning, we have 542 samples left.
+t=208, number of improving points: 97/100
+Value Iteration Converged after 8 steps.
+t=208, After pruning, we have 544 samples left.
+t=209, number of improving points: 97/100
+Value Iteration Converged after 7 steps.
+t=209, After pruning, we have 553 samples left.
+t=210, number of improving points: 99/100
+Value Iteration Converged after 8 steps.
+t=210, After pruning, we have 560 samples left.
+t=211, number of improving points: 99/100
+Value Iteration Converged after 8 steps.
+t=211, After pruning, we have 568 samples left.
+t=212, number of improving points: 97/100
+Value Iteration Converged after 7 steps.
+t=212, After pruning, we have 574 samples left.
+t=213, number of improving points: 98/100
+Value Iteration Converged after 8 steps.
+t=213, After pruning, we have 579 samples left.
+t=214, number of improving points: 99/100
+Value Iteration Converged after 8 steps.
+t=214, After pruning, we have 584 samples left.
+t=215, number of improving points: 96/100
+Value Iteration Converged after 8 steps.
+t=215, After pruning, we have 594 samples left.
+t=216, number of improving points: 98/100
+Value Iteration Converged after 7 steps.
+t=216, After pruning, we have 604 samples left.
+t=217, number of improving points: 100/100
+Value Iteration Converged after 7 steps.
+t=217, After pruning, we have 606 samples left.
+t=218, number of improving points: 93/100
+Value Iteration Converged after 7 steps.
+t=218, After pruning, we have 613 samples left.
+t=219, number of improving points: 96/100
+Value Iteration Converged after 7 steps.
+t=219, After pruning, we have 623 samples left.
+t=220, number of improving points: 97/100
+Value Iteration Converged after 7 steps.
+t=220, After pruning, we have 629 samples left.
+t=221, number of improving points: 100/100
+Value Iteration Converged after 7 steps.
+t=221, After pruning, we have 638 samples left.
+t=222, number of improving points: 99/100
+Value Iteration Converged after 4 steps.
+t=222, After pruning, we have 644 samples left.
+t=223, number of improving points: 98/100
+Value Iteration Converged after 8 steps.
+t=223, After pruning, we have 640 samples left.
+t=224, number of improving points: 99/100
+Value Iteration Converged after 8 steps.
+t=224, After pruning, we have 644 samples left.
+t=225, number of improving points: 99/100
+Value Iteration Converged after 7 steps.
+t=225, After pruning, we have 648 samples left.
+t=226, number of improving points: 100/100
+Value Iteration Converged after 8 steps.
+t=226, After pruning, we have 652 samples left.
+t=227, number of improving points: 96/100
+Value Iteration Converged after 6 steps.
+t=227, After pruning, we have 656 samples left.
+t=228, number of improving points: 100/100
+Value Iteration Converged after 7 steps.
+t=228, After pruning, we have 664 samples left.
+t=229, number of improving points: 99/100
+Value Iteration Converged after 8 steps.
+t=229, After pruning, we have 668 samples left.
+t=230, number of improving points: 98/100
+Value Iteration Converged after 6 steps.
+t=230, After pruning, we have 673 samples left.
+t=231, number of improving points: 96/100
+Value Iteration Converged after 8 steps.
+t=231, After pruning, we have 680 samples left.
+t=232, number of improving points: 98/100
+Value Iteration Converged after 8 steps.
+t=232, After pruning, we have 684 samples left.
+t=233, number of improving points: 96/100
+Value Iteration Converged after 8 steps.
+t=233, After pruning, we have 686 samples left.
+t=234, number of improving points: 98/100
+Value Iteration Converged after 8 steps.
+t=234, After pruning, we have 680 samples left.
+t=235, number of improving points: 97/100
+Value Iteration Converged after 9 steps.
+t=235, After pruning, we have 688 samples left.
+t=236, number of improving points: 96/100
+Value Iteration Converged after 9 steps.
+t=236, After pruning, we have 693 samples left.
+t=237, number of improving points: 96/100
+Value Iteration Converged after 9 steps.
+t=237, After pruning, we have 700 samples left.
+t=238, number of improving points: 96/100
+Value Iteration Converged after 9 steps.
+t=238, After pruning, we have 706 samples left.
+t=239, number of improving points: 95/100
+Value Iteration Converged after 8 steps.
+t=239, After pruning, we have 706 samples left.
+t=240, number of improving points: 99/100
+Value Iteration Converged after 9 steps.
+t=240, After pruning, we have 709 samples left.
+t=241, number of improving points: 96/100
+Value Iteration Converged after 9 steps.
+t=241, After pruning, we have 710 samples left.
+t=242, number of improving points: 97/100
+Value Iteration Converged after 8 steps.
+t=242, After pruning, we have 712 samples left.
+t=243, number of improving points: 97/100
+Value Iteration Converged after 9 steps.
+t=243, After pruning, we have 717 samples left.
+t=244, number of improving points: 99/100
+Value Iteration Converged after 9 steps.
+t=244, After pruning, we have 721 samples left.
+t=245, number of improving points: 94/100
+Value Iteration Converged after 8 steps.
+t=245, After pruning, we have 728 samples left.
+t=246, number of improving points: 98/100
+Value Iteration Converged after 8 steps.
+t=246, After pruning, we have 732 samples left.
+t=247, number of improving points: 97/100
+Value Iteration Converged after 11 steps.
+t=247, After pruning, we have 740 samples left.
+t=248, number of improving points: 92/100
+Value Iteration Converged after 8 steps.
+t=248, After pruning, we have 742 samples left.
+t=249, number of improving points: 96/100
+Value Iteration Converged after 9 steps.
+t=249, After pruning, we have 743 samples left.
+t=250, number of improving points: 98/100
+Value Iteration Converged after 8 steps.
+t=250, After pruning, we have 751 samples left.
+t=251, number of improving points: 96/100
+Value Iteration Converged after 9 steps.
+t=251, After pruning, we have 753 samples left.
+t=252, number of improving points: 100/100
+Value Iteration Converged after 8 steps.
+t=252, After pruning, we have 759 samples left.
+t=253, number of improving points: 95/100
+Value Iteration Converged after 9 steps.
+t=253, After pruning, we have 763 samples left.
+t=254, number of improving points: 98/100
+Value Iteration Converged after 6 steps.
+t=254, After pruning, we have 766 samples left.
+t=255, number of improving points: 97/100
+Value Iteration Converged after 10 steps.
+t=255, After pruning, we have 768 samples left.
+t=256, number of improving points: 100/100
+Value Iteration Converged after 7 steps.
+t=256, After pruning, we have 772 samples left.
+t=257, number of improving points: 96/100
+Value Iteration Converged after 8 steps.
+t=257, After pruning, we have 776 samples left.
+t=258, number of improving points: 98/100
+Value Iteration Converged after 8 steps.
+t=258, After pruning, we have 767 samples left.
+t=259, number of improving points: 98/100
+Value Iteration Converged after 9 steps.
+t=259, After pruning, we have 774 samples left.
+t=260, number of improving points: 98/100
+Value Iteration Converged after 9 steps.
+t=260, After pruning, we have 779 samples left.
+t=261, number of improving points: 96/100
+Value Iteration Converged after 9 steps.
+t=261, After pruning, we have 782 samples left.
+t=262, number of improving points: 96/100
+Value Iteration Converged after 10 steps.
+t=262, After pruning, we have 787 samples left.
+t=263, number of improving points: 97/100
+Value Iteration Converged after 10 steps.
+t=263, After pruning, we have 796 samples left.
+t=264, number of improving points: 100/100
+Value Iteration Converged after 10 steps.
+t=264, After pruning, we have 801 samples left.
+t=265, number of improving points: 97/100
+Value Iteration Converged after 9 steps.
+t=265, After pruning, we have 806 samples left.
+t=266, number of improving points: 98/100
+Value Iteration Converged after 9 steps.
+t=266, After pruning, we have 813 samples left.
+t=267, number of improving points: 98/100
+Value Iteration Converged after 9 steps.
+t=267, After pruning, we have 818 samples left.
+t=268, number of improving points: 97/100
+Value Iteration Converged after 9 steps.
+t=268, After pruning, we have 817 samples left.
+t=269, number of improving points: 96/100
+Value Iteration Converged after 9 steps.
+t=269, After pruning, we have 811 samples left.
+t=270, number of improving points: 97/100
+Value Iteration Converged after 9 steps.
+t=270, After pruning, we have 812 samples left.
+t=271, number of improving points: 96/100
+Value Iteration Converged after 10 steps.
+t=271, After pruning, we have 815 samples left.
+t=272, number of improving points: 96/100
+Value Iteration Converged after 7 steps.
+t=272, After pruning, we have 801 samples left.
+t=273, number of improving points: 98/100
+Value Iteration Converged after 6 steps.
+t=273, After pruning, we have 807 samples left.
+t=274, number of improving points: 98/100
+Value Iteration Converged after 7 steps.
+t=274, After pruning, we have 813 samples left.
+t=275, number of improving points: 95/100
+Value Iteration Converged after 7 steps.
+t=275, After pruning, we have 815 samples left.
+t=276, number of improving points: 97/100
+Value Iteration Converged after 7 steps.
+t=276, After pruning, we have 820 samples left.
+t=277, number of improving points: 99/100
+Value Iteration Converged after 6 steps.
+t=277, After pruning, we have 815 samples left.
+t=278, number of improving points: 98/100
+Value Iteration Converged after 6 steps.
+t=278, After pruning, we have 819 samples left.
+t=279, number of improving points: 95/100
+Value Iteration Converged after 9 steps.
+t=279, After pruning, we have 828 samples left.
+t=280, number of improving points: 97/100
+Value Iteration Converged after 7 steps.
+t=280, After pruning, we have 826 samples left.
+t=281, number of improving points: 96/100
+Value Iteration Converged after 7 steps.
+t=281, After pruning, we have 830 samples left.
+t=282, number of improving points: 96/100
+Value Iteration Converged after 8 steps.
+t=282, After pruning, we have 839 samples left.
+t=283, number of improving points: 96/100
+Value Iteration Converged after 6 steps.
+t=283, After pruning, we have 843 samples left.
+t=284, number of improving points: 95/100
+Value Iteration Converged after 7 steps.
+t=284, After pruning, we have 847 samples left.
+t=285, number of improving points: 98/100
+Value Iteration Converged after 7 steps.
+t=285, After pruning, we have 842 samples left.
+t=286, number of improving points: 98/100
+Value Iteration Converged after 6 steps.
+t=286, After pruning, we have 847 samples left.
+t=287, number of improving points: 94/100
+Value Iteration Converged after 6 steps.
+t=287, After pruning, we have 846 samples left.
+t=288, number of improving points: 99/100
+Value Iteration Converged after 17 steps.
+t=288, After pruning, we have 851 samples left.
+t=289, number of improving points: 98/100
+Value Iteration Converged after 7 steps.
+t=289, After pruning, we have 852 samples left.
+t=290, number of improving points: 99/100
+Value Iteration Converged after 6 steps.
+t=290, After pruning, we have 858 samples left.
+t=291, number of improving points: 95/100
+Value Iteration Converged after 7 steps.
+t=291, After pruning, we have 856 samples left.
+t=292, number of improving points: 93/100
+Value Iteration Converged after 9 steps.
+t=292, After pruning, we have 861 samples left.
+t=293, number of improving points: 97/100
+Value Iteration Converged after 7 steps.
+t=293, After pruning, we have 868 samples left.
+t=294, number of improving points: 98/100
+Value Iteration Converged after 8 steps.
+t=294, After pruning, we have 881 samples left.
+t=295, number of improving points: 100/100
+Value Iteration Converged after 7 steps.
+t=295, After pruning, we have 886 samples left.
+t=296, number of improving points: 99/100
+Value Iteration Converged after 6 steps.
+t=296, After pruning, we have 891 samples left.
+t=297, number of improving points: 98/100
+Value Iteration Converged after 9 steps.
+t=297, After pruning, we have 888 samples left.
+t=298, number of improving points: 99/100
+Value Iteration Converged after 7 steps.
+t=298, After pruning, we have 890 samples left.
+t=299, number of improving points: 97/100
+Value Iteration Converged after 8 steps.
+t=299, After pruning, we have 864 samples left.
+t=300, number of improving points: 97/100
+Value Iteration Converged after 7 steps.
+t=300, After pruning, we have 868 samples left.
+t=301, number of improving points: 98/100
+Value Iteration Converged after 6 steps.
+t=301, After pruning, we have 868 samples left.
+t=302, number of improving points: 97/100
+Value Iteration Converged after 6 steps.
+t=302, After pruning, we have 875 samples left.
+t=303, number of improving points: 97/100
+Value Iteration Converged after 7 steps.
+t=303, After pruning, we have 879 samples left.
+t=304, number of improving points: 94/100
+Value Iteration Converged after 6 steps.
+t=304, After pruning, we have 886 samples left.
+t=305, number of improving points: 97/100
+Value Iteration Converged after 7 steps.
+t=305, After pruning, we have 889 samples left.
+t=306, number of improving points: 99/100
+Value Iteration Converged after 6 steps.
+t=306, After pruning, we have 897 samples left.
+t=307, number of improving points: 96/100
+Value Iteration Converged after 7 steps.
+t=307, After pruning, we have 904 samples left.
+t=308, number of improving points: 99/100
+Value Iteration Converged after 7 steps.
+t=308, After pruning, we have 908 samples left.
+t=309, number of improving points: 97/100
+Value Iteration Converged after 17 steps.
+t=309, After pruning, we have 904 samples left.
+t=310, number of improving points: 97/100
+Value Iteration Converged after 6 steps.
+t=310, After pruning, we have 907 samples left.
+t=311, number of improving points: 97/100
+Value Iteration Converged after 6 steps.
+t=311, After pruning, we have 906 samples left.
+t=312, number of improving points: 97/100
+Value Iteration Converged after 7 steps.
+t=312, After pruning, we have 909 samples left.
+t=313, number of improving points: 96/100
+Value Iteration Converged after 6 steps.
+t=313, After pruning, we have 912 samples left.
+t=314, number of improving points: 98/100
+Value Iteration Converged after 6 steps.
+t=314, After pruning, we have 916 samples left.
+t=315, number of improving points: 96/100
+Value Iteration Converged after 6 steps.
+t=315, After pruning, we have 920 samples left.
+t=316, number of improving points: 96/100
+Value Iteration Converged after 7 steps.
+t=316, After pruning, we have 927 samples left.
+t=317, number of improving points: 96/100
+Value Iteration Converged after 7 steps.
+t=317, After pruning, we have 924 samples left.
+t=318, number of improving points: 99/100
+Value Iteration Converged after 7 steps.
+t=318, After pruning, we have 926 samples left.
+t=319, number of improving points: 100/100
+Value Iteration Converged after 8 steps.
+t=319, After pruning, we have 924 samples left.
+t=320, number of improving points: 97/100
+Value Iteration Converged after 6 steps.
+t=320, After pruning, we have 926 samples left.
+t=321, number of improving points: 95/100
+Value Iteration Converged after 7 steps.
+t=321, After pruning, we have 928 samples left.
+t=322, number of improving points: 95/100
+Value Iteration Converged after 6 steps.
+t=322, After pruning, we have 918 samples left.
+t=323, number of improving points: 95/100
+Value Iteration Converged after 6 steps.
+t=323, After pruning, we have 922 samples left.
+t=324, number of improving points: 97/100
+Value Iteration Converged after 8 steps.
+t=324, After pruning, we have 925 samples left.
+t=325, number of improving points: 95/100
+Value Iteration Converged after 7 steps.
+t=325, After pruning, we have 932 samples left.
+t=326, number of improving points: 98/100
+Value Iteration Converged after 6 steps.
+t=326, After pruning, we have 936 samples left.
+t=327, number of improving points: 99/100
+Value Iteration Converged after 8 steps.
+t=327, After pruning, we have 945 samples left.
+t=328, number of improving points: 96/100
+Value Iteration Converged after 7 steps.
+t=328, After pruning, we have 948 samples left.
+t=329, number of improving points: 94/100
+Value Iteration Converged after 6 steps.
+t=329, After pruning, we have 954 samples left.
+t=330, number of improving points: 94/100
+Value Iteration Converged after 6 steps.
+t=330, After pruning, we have 959 samples left.
+t=331, number of improving points: 98/100
+Value Iteration Converged after 6 steps.
+t=331, After pruning, we have 954 samples left.
+t=332, number of improving points: 98/100
+Value Iteration Converged after 7 steps.
+t=332, After pruning, we have 961 samples left.
+t=333, number of improving points: 97/100
+Value Iteration Converged after 7 steps.
+t=333, After pruning, we have 963 samples left.
+t=334, number of improving points: 97/100
+Value Iteration Converged after 6 steps.
+t=334, After pruning, we have 965 samples left.
+t=335, number of improving points: 95/100
+Value Iteration Converged after 6 steps.
+t=335, After pruning, we have 970 samples left.
+t=336, number of improving points: 95/100
+Value Iteration Converged after 3 steps.
+t=336, After pruning, we have 976 samples left.
+t=337, number of improving points: 98/100
+Value Iteration Converged after 6 steps.
+t=337, After pruning, we have 960 samples left.
+t=338, number of improving points: 99/100
+Value Iteration Converged after 7 steps.
+t=338, After pruning, we have 963 samples left.
+t=339, number of improving points: 96/100
+Value Iteration Converged after 5 steps.
+t=339, After pruning, we have 964 samples left.
+t=340, number of improving points: 99/100
+Value Iteration Converged after 7 steps.
+t=340, After pruning, we have 917 samples left.
+t=341, number of improving points: 99/100
+Value Iteration Converged after 8 steps.
+t=341, After pruning, we have 923 samples left.
+t=342, number of improving points: 98/100
+Value Iteration Converged after 7 steps.
+t=342, After pruning, we have 923 samples left.
+t=343, number of improving points: 95/100
+Value Iteration Converged after 11 steps.
+t=343, After pruning, we have 929 samples left.
+t=344, number of improving points: 95/100
+Value Iteration Converged after 6 steps.
+t=344, After pruning, we have 920 samples left.
+t=345, number of improving points: 99/100
+Value Iteration Converged after 6 steps.
+t=345, After pruning, we have 916 samples left.
+t=346, number of improving points: 98/100
+Value Iteration Converged after 6 steps.
+t=346, After pruning, we have 910 samples left.
+t=347, number of improving points: 94/100
+Value Iteration Converged after 6 steps.
+t=347, After pruning, we have 914 samples left.
+t=348, number of improving points: 99/100
+Value Iteration Converged after 7 steps.
+t=348, After pruning, we have 915 samples left.
+t=349, number of improving points: 99/100
+Value Iteration Converged after 6 steps.
+t=349, After pruning, we have 916 samples left.
+t=350, number of improving points: 97/100
+Value Iteration Converged after 6 steps.
+t=350, After pruning, we have 920 samples left.
+t=351, number of improving points: 97/100
+Value Iteration Converged after 6 steps.
+t=351, After pruning, we have 928 samples left.
+t=352, number of improving points: 98/100
+Value Iteration Converged after 6 steps.
+t=352, After pruning, we have 931 samples left.
+t=353, number of improving points: 96/100
+Value Iteration Converged after 6 steps.
+t=353, After pruning, we have 934 samples left.
+t=354, number of improving points: 98/100
+Value Iteration Converged after 6 steps.
+t=354, After pruning, we have 947 samples left.
+t=355, number of improving points: 97/100
+Value Iteration Converged after 6 steps.
+t=355, After pruning, we have 949 samples left.
+t=356, number of improving points: 98/100
+Value Iteration Converged after 6 steps.
+t=356, After pruning, we have 952 samples left.
+t=357, number of improving points: 98/100
+Value Iteration Converged after 12 steps.
+t=357, After pruning, we have 952 samples left.
+t=358, number of improving points: 93/100
+Value Iteration Converged after 6 steps.
+t=358, After pruning, we have 953 samples left.
+t=359, number of improving points: 96/100
+Value Iteration Converged after 6 steps.
+t=359, After pruning, we have 958 samples left.
+t=360, number of improving points: 94/100
+Value Iteration Converged after 17 steps.
+t=360, After pruning, we have 960 samples left.
+t=361, number of improving points: 98/100
+Value Iteration Converged after 7 steps.
+t=361, After pruning, we have 961 samples left.
+t=362, number of improving points: 95/100
+Value Iteration Converged after 15 steps.
+t=362, After pruning, we have 964 samples left.
+t=363, number of improving points: 98/100
+Value Iteration Converged after 6 steps.
+t=363, After pruning, we have 958 samples left.
+t=364, number of improving points: 98/100
+Value Iteration Converged after 17 steps.
+t=364, After pruning, we have 962 samples left.
+t=365, number of improving points: 99/100
+Value Iteration Converged after 6 steps.
+t=365, After pruning, we have 965 samples left.
+t=366, number of improving points: 93/100
+Value Iteration Converged after 7 steps.
+t=366, After pruning, we have 972 samples left.
+t=367, number of improving points: 99/100
+Value Iteration Converged after 4 steps.
+t=367, After pruning, we have 979 samples left.
+t=368, number of improving points: 96/100
+Value Iteration Converged after 7 steps.
+t=368, After pruning, we have 983 samples left.
+t=369, number of improving points: 99/100
+Value Iteration Converged after 6 steps.
+t=369, After pruning, we have 984 samples left.
+t=370, number of improving points: 97/100
+Value Iteration Converged after 7 steps.
+t=370, After pruning, we have 991 samples left.
+t=371, number of improving points: 100/100
+Value Iteration Converged after 15 steps.
+t=371, After pruning, we have 994 samples left.
+t=372, number of improving points: 100/100
+Value Iteration Converged after 16 steps.
+t=372, After pruning, we have 996 samples left.
+t=373, number of improving points: 94/100
+Value Iteration Converged after 10 steps.
+t=373, After pruning, we have 1000 samples left.
+t=374, number of improving points: 96/100
+Value Iteration Converged after 7 steps.
+t=374, After pruning, we have 1002 samples left.
+t=375, number of improving points: 93/100
+Value Iteration Converged after 4 steps.
+t=375, After pruning, we have 1001 samples left.
+t=376, number of improving points: 96/100
+Value Iteration Converged after 9 steps.
+t=376, After pruning, we have 1006 samples left.
+t=377, number of improving points: 99/100
+Value Iteration Converged after 5 steps.
+t=377, After pruning, we have 1008 samples left.
+t=378, number of improving points: 98/100
+Value Iteration Converged after 6 steps.
+t=378, After pruning, we have 1013 samples left.
+t=379, number of improving points: 96/100
+Value Iteration Converged after 6 steps.
+t=379, After pruning, we have 1018 samples left.
+t=380, number of improving points: 99/100
+Value Iteration Converged after 3 steps.
+t=380, After pruning, we have 1027 samples left.
+t=381, number of improving points: 99/100
