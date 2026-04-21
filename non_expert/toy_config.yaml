@@ -15,13 +15,21 @@ defaults:
   sigma: 1
   # K neighbors
   k: 100
+  # FAISS OpenMP threads per process. Keep low when running multiple jobs on a laptop.
+  faiss_threads: 2
+  # Query chunk size for dense distance reductions. Lower uses less RAM but runs slower.
+  distance_batch_size: 512
   # Number of initial samples
   M0: 50
   # Number of refinement samples
   M: 100
   # Number of iterations of the algorithm
-  max_iter: 100
+  max_iter: 1000
   # Tolerance for fixed points
   q_tol: 1.0e-3
   # Iterations for fixed point
   q_iter: 1000
+  # Whether to use optimistic K-step bootstrapping
+  do_bootstrap: True
+  # Maximum lookahead for K-step bootstrapping
+  max_bootstrap: 5

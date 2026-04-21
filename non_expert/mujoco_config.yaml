@@ -2,14 +2,18 @@ defaults:
   # MuJoCo environment
   env_id: 
   # Discount factor
-  gamma: 0.99
+  gamma: 0.999
   # Policy parameters
   # Lambda for the upper bound
-  lambd: 10
+  lambd: 5
   # std Gaussian noise
-  sigma: 2
+  sigma: 1
   # K neighbors
   k: 1000
+  # FAISS OpenMP threads per process. Keep low when running multiple jobs on a laptop.
+  faiss_threads: 2
+  # Query chunk size for dense distance reductions. Lower uses less RAM but runs slower.
+  distance_batch_size: 2048
   # Number of initial samples
   M0: 50
   # Number of refinement samples
@@ -18,13 +22,17 @@ defaults:
   max_iter: 1_000
   # Tolerance for fixed points
   q_tol: 1.0e-3
-  # Iterations for fixed point
+  # Iterations for fixed p1int
   q_iter: 1000
+  # Whether to use optimistic K-step bootstrapping
+  do_bootstrap: True
+  # Maximum lookahead for K-step bootstrapping
+  max_bootstrap: 3
   # Evaluation of J_pi: how many sampels to use
-  eval_samples: 10
+  eval_samples: 1
 
 InvertedPendulum-v5:
   env_id: "InvertedPendulum-v5"
-  sigma: 1
+  lambd: 500
+  sigma: 2
   
-

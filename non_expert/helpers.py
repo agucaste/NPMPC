@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
@@ -43,10 +44,7 @@ def J_upper_bound(y: np.ndarray, x_d: np.ndarray, q: np.ndarray, lambd):
     assert q.ndim == 1, "q should be a 1D array"
     if hasattr(lambd, "X"):
         lambd = lambd.X
-    y = as_rows(y)
-    x_d = as_rows(x_d)
-    dists = np.linalg.norm(x_d[:, None, :] - y[None, :, :], axis=-1)
-    return np.min(q[:, None] + lambd * dists, axis=0)
+    return _min_lipschitz_values(as_rows(x_d), as_rows(y), q, lambd)
 
 
 def Q_upper_bound(y: np.ndarray, u: np.ndarray, x_d: np.ndarray, u_d: np.ndarray, q: np.ndarray, lambd):
@@ -58,9 +56,16 @@ def Q_upper_bound(y: np.ndarray, u: np.ndarray, x_d: np.ndarray, u_d: np.ndarray
     u = as_rows(u)
     x_d = as_rows(x_d)
     u_d = as_rows(u_d)
-    dists_x = np.linalg.norm(x_d[:, None, :] - y[None, :, :], axis=-1)
-    dists_u = np.linalg.norm(u_d[:, None, :] - u[None, :, :], axis=-1)
-    return np.min(q[:, None] + lambd * dists_x + lambd * dists_u, axis=0)
+    batch_size = _distance_batch_size()
+    out = np.empty(y.shape[0], dtype=float)
+
+    for start in range(0, y.shape[0], batch_size):
+        stop = min(start + batch_size, y.shape[0])
+        dists_x = np.linalg.norm(x_d[:, None, :] - y[None, start:stop, :], axis=-1)
+        dists_u = np.linalg.norm(u_d[:, None, :] - u[None, start:stop, :], axis=-1)
+        out[start:stop] = np.min(q[:, None] + lambd * dists_x + lambd * dists_u, axis=0)
+
+    return out
 
 
 def find_fixed_point(D: List[Tuple], lambd: float, gamma: float, tol: float = 1e-3, max_iter: int = 1000):
@@ -98,6 +103,35 @@ def as_rows(a: np.ndarray) -> np.ndarray:
     return a.reshape(a.shape[0], -1)
 
 
+def _distance_batch_size() -> int:
+    """Return the query chunk size used for dense distance reductions."""
+    return max(1, int(os.environ.get("MINT_DISTANCE_BATCH_SIZE", "1024")))
+
+
+def _min_lipschitz_values(
+    x_d: np.ndarray,
+    y: np.ndarray,
+    q: np.ndarray,
+    lambd: float,
+    batch_size: Optional[int] = None,
+) -> np.ndarray:
+    """Computes min_i q_i + lambda * ||x_i - y_j|| without an N x M allocation."""
+    x_d = as_rows(x_d)
+    y = as_rows(y)
+    q = np.asarray(q, dtype=float).reshape(-1)
+    assert x_d.shape[0] == q.shape[0], "q must match number of source samples"
+
+    batch_size = _distance_batch_size() if batch_size is None else max(1, int(batch_size))
+    out = np.empty(y.shape[0], dtype=float)
+
+    for start in range(0, y.shape[0], batch_size):
+        stop = min(start + batch_size, y.shape[0])
+        dists = np.linalg.norm(x_d[:, None, :] - y[None, start:stop, :], axis=-1)
+        out[start:stop] = np.min(q[:, None] + lambd * dists, axis=0)
+
+    return out
+
+
 def find_fixed_point_v2(
     D: List[Tuple],
     lambd: float,
@@ -107,7 +141,7 @@ def find_fixed_point_v2(
     warm_Q: Optional[np.ndarray] = None,
 ):
     """
-    Vectorized version of the above.
+    Vectorized version of function `find_fixed_point`.
     Finds the fixed point of the Bellman operator T^Qub:
 
     (TQ)i = ci + gamma * min_k { Q(xk) + lambda * dist(xk, xi') }
@@ -123,11 +157,9 @@ def find_fixed_point_v2(
     assert x.shape == x_next.shape, "x and x_next must have matching shapes"
     assert x.shape[0] == c.shape[0], "costs must match number of samples"
 
-    dist = np.linalg.norm(x[:, None, :] - x_next[None, :, :], axis=-1)
-
     Q = np.zeros(x.shape[0]) if warm_Q is None else np.concatenate([warm_Q, np.zeros(len(D) - len(warm_Q))])
     for it in range(max_iter):
-        Q_next = c + gamma * np.min(Q[:, None] + lambd * dist, axis=0)
+        Q_next = c + gamma * _min_lipschitz_values(x, x_next, Q, lambd)
 
         if np.max(np.abs(Q_next - Q)) < tol:
             print(f"Value Iteration Converged after {it} steps.")
@@ -136,6 +168,89 @@ def find_fixed_point_v2(
         Q = Q_next
 
     return Q
+
+def find_fixed_point_v3(
+    D: List[Tuple],
+    lambd: float,
+    gamma: float,
+    tol: float = 1e-3,
+    max_iter: int = 1000,
+    warm_Q: Optional[np.ndarray] = None,
+    K: int = 5,
+):
+    r"""
+    K-step bootstrapped version of `find_fixed_point_v2`.
+    Solves value iteration with (optimistic) k-step bootstrapping, 1 <= k <= K.
+
+    (TQ)_i = \min_{1 <= k <= K} c + γ*c' + γ^2*c'' + ... + γ^{k-1}*c'^{k-1} + γ^k * min_j { Q(xj) + λ*dist(xj, x'^{k}) }
+
+    Args:
+        D (List[Tuple]): Dataset of transitions (xi, ui, ci, xi', ui', ci', xi'', ui'', ci'', ...).
+        lambd (float): constant for the Lipschitz term in the Bellman operator.
+        gamma (float): discount factor.
+        tol (float, optional): tolerance for convergence (sup norm).
+        max_iter (int, optional): maximum number of iterations. 
+        warm_Q (Optional[np.ndarray], optional): initial guess for the Q-function.
+        K (int, optional): number of steps for bootstrapping. Defaults to 5.
+
+    Returns:
+        Tuple[np.ndarray, float, float, int]: Q values, average selected bootstrap
+        step, median selected bootstrap step across all value-iteration updates,
+        and the number of value-iteration updates run.
+    """
+    assert len(D) > 0 and lambd > 0 and 0 < gamma < 1, "Invalid inputs"
+    assert K >= 1, "K must be at least 1"
+    assert all(len(d) == 3 * K + 1 for d in D), "Each transition tuple must contain (xi, ui, ci, xi', ui', ci', ..., xi^{K})"
+
+    x = as_rows([d[0] for d in D])
+    x_nexts = [as_rows([d[3 + 3*k] for d in D]) for k in range(K)]
+    costs = [np.asarray([d[2 + 3*k] for d in D], dtype=float).reshape(-1) for k in range(K)]
+
+    assert all(x_next.shape == x.shape for x_next in x_nexts), "all x_next arrays must match x shape"
+    assert all(cost.shape[0] == x.shape[0] for cost in costs), "costs must match number of samples"
+
+    discounted_costs = np.zeros((K, x.shape[0]))
+    running_cost = np.zeros(x.shape[0])
+    for k in range(K):
+        running_cost = running_cost + (gamma ** k) * costs[k]
+        discounted_costs[k] = running_cost
+
+    if warm_Q is None:
+        Q = np.zeros(x.shape[0])
+    else:
+        Q = np.concatenate([warm_Q, np.zeros(len(D) - len(warm_Q))])
+
+    gamma_powers = gamma ** np.arange(1, K + 1)
+    all_bootstrap_steps = []
+    for it in range(max_iter):
+        bootstraps = np.vstack(
+            [
+                _min_lipschitz_values(x, x_nexts[k], Q, lambd)
+                for k in range(K)
+            ]
+        )
+        k_step_values = discounted_costs + gamma_powers[:, None] * bootstraps
+        bootstrap_steps = np.argmin(k_step_values, axis=0) + 1
+        all_bootstrap_steps.append(bootstrap_steps)
+        Q_next = np.min(k_step_values, axis=0)
+
+        if np.max(np.abs(Q_next - Q)) < tol:
+            avg_bootstrap, median_bootstrap = _bootstrap_step_stats(all_bootstrap_steps)
+            return Q_next, avg_bootstrap, median_bootstrap, it
+
+        Q = Q_next
+
+    avg_bootstrap, median_bootstrap = _bootstrap_step_stats(all_bootstrap_steps)
+    return Q, avg_bootstrap, median_bootstrap, max_iter
+
+
+def _bootstrap_step_stats(all_bootstrap_steps: List[np.ndarray]) -> Tuple[float, float]:
+    if not all_bootstrap_steps:
+        return 1.0, 1.0
+
+    bootstrap_steps = np.concatenate(all_bootstrap_steps)
+    return float(np.mean(bootstrap_steps)), float(np.median(bootstrap_steps))
+
 
 
 def solve_optimization_problem(
