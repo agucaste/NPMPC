@@ -43,9 +43,9 @@ def J_upper_bound(y: np.ndarray, x_d: np.ndarray, q: np.ndarray, lambd):
     assert q.ndim == 1, "q should be a 1D array"
     if hasattr(lambd, "X"):
         lambd = lambd.X
-    if y.ndim == 0:
-        y = np.array([y])
-    dists = np.abs(x_d[:, None] - y[None, :])
+    y = as_rows(y)
+    x_d = as_rows(x_d)
+    dists = np.linalg.norm(x_d[:, None, :] - y[None, :, :], axis=-1)
     return np.min(q[:, None] + lambd * dists, axis=0)
 
 
@@ -54,10 +54,12 @@ def Q_upper_bound(y: np.ndarray, u: np.ndarray, x_d: np.ndarray, u_d: np.ndarray
     assert q.ndim == 1, "q should be a 1D array"
     if hasattr(lambd, "X"):
         lambd = lambd.X
-    if y.ndim == 0:
-        y = np.array([y])
-    dists_x = np.abs(x_d[:, None] - y[None, :])
-    dists_u = np.abs(u_d[:, None] - u[None, :])
+    y = as_rows(y)
+    u = as_rows(u)
+    x_d = as_rows(x_d)
+    u_d = as_rows(u_d)
+    dists_x = np.linalg.norm(x_d[:, None, :] - y[None, :, :], axis=-1)
+    dists_u = np.linalg.norm(u_d[:, None, :] - u[None, :, :], axis=-1)
     return np.min(q[:, None] + lambd * dists_x + lambd * dists_u, axis=0)
 
 
@@ -89,6 +91,8 @@ def find_fixed_point(D: List[Tuple], lambd: float, gamma: float, tol: float = 1e
 
 def as_rows(a: np.ndarray) -> np.ndarray:
     a = np.asarray(a, dtype=float)
+    if a.ndim == 0:
+        return a.reshape(1, 1)
     if a.ndim == 1:
         return a.reshape(-1, 1)
     return a.reshape(a.shape[0], -1)
