@@ -7,12 +7,14 @@ channels:
 
 dependencies:
   - python = 3.12
-  - faiss-cpu  # Should install on gpu if available.
+  - faiss-gpu
   - pip
   - pip:
     - do-mpc[full]
   - numpy
   - matplotlib
+  - gymnasium
+  - mujoco
   - scikit-learn
   - tqdm
   - pyyaml
