@@ -9,7 +9,13 @@ import numpy as np
 from core.config import Config, load_yaml
 from core.nn_policy import MINTPolicy, configure_faiss_threads
 from non_expert.helpers import J_upper_bound, Q_upper_bound, Tee, find_fixed_point_v2, find_fixed_point_v3
-from non_expert.mujoco_system import MujocoSystem
+from non_expert.mujoco_system import GymSystem, MujocoSystem
+
+
+def make_system(env):
+    if hasattr(env.unwrapped, "model") and hasattr(env.unwrapped, "data"):
+        return MujocoSystem(env)
+    return GymSystem(env)
 
 
 def make_dataset(X, U, C, X_next, system, do_bootstrap=False, max_bootstrap=1):
@@ -35,6 +41,21 @@ def make_dataset(X, U, C, X_next, system, do_bootstrap=False, max_bootstrap=1):
     return D
 
 
+def make_dataset_from_trajectories(trajectories, system, do_bootstrap=False, max_bootstrap=1):
+    D = []
+    for X, U, C, X_next in trajectories:
+        D.extend(make_dataset(
+            X,
+            U,
+            C,
+            X_next,
+            system,
+            do_bootstrap=do_bootstrap,
+            max_bootstrap=max_bootstrap,
+        ))
+    return D
+
+
 def prune_dataset(X, U, C, X_next, D, Q, lambd):
     J_ub = J_upper_bound(X, X, Q, lambd)
     to_prune = np.where(Q > J_ub)[0]
@@ -51,37 +72,51 @@ def prune_dataset(X, U, C, X_next, D, Q, lambd):
     )
 
 
-def collect_trajectory(system, policy=None, sigma=0.0, seed=None, max_steps=None):
-    obs = system.reset(seed=seed)
-    X, U, C, X_next = [], [], [], []
-    steps = 0
-
-    while True:
-        if policy is None:
-            u = system.env.action_space.sample()
-        else:
-            u = policy.make_step(obs.reshape(1, -1)).reshape(-1)
-            u = u + np.random.normal(scale=sigma, size=system.nu)
-            u = system.clip_action(u)
-
-        cost, obs_next, done = system.transition(u)
-
-        X.append(obs)
-        U.append(u)
-        C.append(cost)
-        X_next.append(obs_next)
-
-        obs = obs_next
-        steps += 1
-        if done or (max_steps is not None and steps >= max_steps):
-            break
-
+def flatten_trajectories(trajectories):
+    X, U, C, X_next = zip(*trajectories)
     return (
-        np.asarray(X, dtype=float),
-        np.asarray(U, dtype=float),
-        np.asarray(C, dtype=float),
-        np.asarray(X_next, dtype=float),
+        np.concatenate(X, axis=0),
+        np.concatenate(U, axis=0),
+        np.concatenate(C, axis=0),
+        np.concatenate(X_next, axis=0),
     )
+
+
+def collect_trajectories(system, policy=None, sigma=0.0, seed=None, max_steps=None, num_trajectories: int = 1):
+    trajectories = []
+    for traj_idx in range(num_trajectories):
+        traj_seed = None if seed is None else seed + traj_idx
+        obs = system.reset(seed=traj_seed)
+        X, U, C, X_next = [], [], [], []
+        steps = 0
+
+        while True:
+            if policy is None:
+                u = system.env.action_space.sample()
+            else:
+                u = policy.make_step(obs.reshape(1, -1)).reshape(-1)
+                u = u + np.random.normal(scale=sigma, size=system.nu)
+
+            cost, obs_next, done = system.transition(u)
+
+            X.append(obs)
+            U.append(u)
+            C.append(cost)
+            X_next.append(obs_next)
+
+            obs = obs_next
+            steps += 1
+            if done or (max_steps is not None and steps >= max_steps):
+                break
+
+        trajectories.append((
+            np.asarray(X, dtype=float),
+            np.asarray(U, dtype=float),
+            np.asarray(C, dtype=float),
+            np.asarray(X_next, dtype=float),
+        ))
+
+    return trajectories
 
 
 def evaluate_policy(system, policy, config, seed_offset=0):
@@ -93,7 +128,6 @@ def evaluate_policy(system, policy, config, seed_offset=0):
 
         while True:
             u = policy.make_step(obs.reshape(1, -1)).reshape(-1)
-            u = system.clip_action(u)
             cost, obs, done = system.transition(u)
             G += discount * (-cost)
             # discount *= config.gamma
@@ -140,6 +174,7 @@ if __name__ == "__main__":
     parser.add_argument("--lambd", type=float)
     parser.add_argument("--sigma", type=float)
     parser.add_argument("--env-id", type=str)
+    parser.add_argument("--faiss-threads", type=int)
     args = parser.parse_args()
 
 
@@ -175,7 +210,7 @@ if __name__ == "__main__":
 
 
     env = gym.make(config.env_id)
-    system = MujocoSystem(env)
+    system = make_system(env)
     do_bootstrap = config.do_bootstrap
     max_bootstrap = config.max_bootstrap
 
@@ -203,12 +238,10 @@ if __name__ == "__main__":
     print(f"Environment: {config.env_id}")
     print(f"Observation dim: {system.nx}, action dim: {system.nu}, full state dim: {system.state_dim}")
 
-    X, U, C, X_next = collect_trajectory(system, policy=None, seed=0)
-    D = make_dataset(
-        X,
-        U,
-        C,
-        X_next,
+    trajectories = collect_trajectories(system, policy=None, seed=0, num_trajectories=config.traj_per_iter)
+    X, U, C, X_next = flatten_trajectories(trajectories)
+    D = make_dataset_from_trajectories(
+        trajectories,
         system,
         do_bootstrap=do_bootstrap,
         max_bootstrap=max_bootstrap,
@@ -244,12 +277,14 @@ if __name__ == "__main__":
     ])
 
     for t in range(1, config.max_iter + 1):
-        X_new, U_new, C_new, X_next_new = collect_trajectory(
+        new_trajectories = collect_trajectories(
             system,
             policy=pi_mint,
             sigma=config.sigma,
             seed=t,
+            num_trajectories=config.traj_per_iter
         )
+        X_new, U_new, C_new, X_next_new = flatten_trajectories(new_trajectories)
 
         Q_new = J_upper_bound(X_new, X, Q, config.lambd)
         TQ_new = C_new + config.gamma * J_upper_bound(X_next_new, X, Q, config.lambd)
@@ -261,11 +296,8 @@ if __name__ == "__main__":
         avg_bootstrap = avg_bootstrap_steps[t - 1]
         median_bootstrap = median_bootstrap_steps[t - 1]
         if np.any(improves):
-            D_new = make_dataset(
-                X_new,
-                U_new,
-                C_new,
-                X_next_new,
+            D_new = make_dataset_from_trajectories(
+                new_trajectories,
                 system,
                 do_bootstrap=do_bootstrap,
                 max_bootstrap=max_bootstrap,
