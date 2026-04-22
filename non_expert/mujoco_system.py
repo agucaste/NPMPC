@@ -9,6 +9,22 @@ Author: Agustin Castellano (@agucaste)
 import numpy as np
 
 
+class GymSystem:
+    def __init__(self, env):
+        self.env = env
+        self.nx = self.env.observation_space.shape[0]
+        self.nu = self.env.action_space.shape[0]
+        self.state_dim = self.nx
+
+    def reset(self, seed=None):
+        obs, _ = self.env.reset(seed=seed)
+        return obs
+
+    def transition(self, u):
+        obs_next, reward, terminated, truncated, info = self.env.step(u)
+        return -reward, obs_next, terminated or truncated
+
+
 class MujocoSystem:
     def __init__(self, env):
         self.env = env
