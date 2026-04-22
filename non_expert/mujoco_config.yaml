@@ -11,15 +11,17 @@ defaults:
   # K neighbors
   k: 1000
   # FAISS OpenMP threads per process. Keep low when running multiple jobs on a laptop.
-  faiss_threads: 2
+  faiss_threads: 4
   # Query chunk size for dense distance reductions. Lower uses less RAM but runs slower.
   distance_batch_size: 2048
   # Number of initial samples
   M0: 50
-  # Number of refinement samples
+  # Number of refinement samples (Only for ToyExample)
   M: 100
   # Number of iterations of the algorithm
   max_iter: 1_000
+  # Trajectories run per iteration
+  traj_per_iter: 10
   # Tolerance for fixed points
   q_tol: 1.0e-3
   # Iterations for fixed p1int
@@ -33,6 +35,8 @@ defaults:
 
 InvertedPendulum-v5:
   env_id: "InvertedPendulum-v5"
-  lambd: 500
-  sigma: 2
+  lambd: 5
+  sigma: 3
+  max_iter: 3_00
+
   
