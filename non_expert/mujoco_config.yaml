@@ -16,7 +16,7 @@ defaults:
   distance_batch_size: 2048
   # Number of initial samples
   M0: 50
-  # Number of refinement samples (Only for ToyExample)
+  # Number of refinement samples per iteration
   M: 100
   # Number of iterations of the algorithm
   max_iter: 1_000
@@ -38,5 +38,13 @@ InvertedPendulum-v5:
   lambd: 5
   sigma: 3
   max_iter: 3_00
+
+Pendulum-v1:
+  env_id: "Pendulum-v1"
+  max_iter: 2_000
+  M: 1000
+  traj_per_iter: 1
+  sigma: 3
+  lambd: 10
 
   

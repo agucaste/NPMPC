@@ -93,6 +93,7 @@ def collect_trajectories(system, policy=None, sigma=0.0, seed=None, max_steps=No
         while True:
             if policy is None:
                 u = system.env.action_space.sample()
+                # print(f"u is {u}", f"steps is {steps}")
             else:
                 u = policy.make_step(obs.reshape(1, -1)).reshape(-1)
                 u = u + np.random.normal(scale=sigma, size=system.nu)
@@ -179,8 +180,8 @@ if __name__ == "__main__":
 
 
     # Name of the environment to be tested.
-    env_id = 'InvertedPendulum-v5'
-    
+    env_id = args.env_id or "InvertedPendulum-v5"
+
     # Load configuration
     path = os.path.dirname(os.path.abspath(__file__))
     cfg_path = os.path.join(path, "mujoco_config.yaml")
@@ -198,7 +199,7 @@ if __name__ == "__main__":
 
     # Make folder to save results
     hms_time = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
-    results_path = os.path.join(path, "results", "mujoco", f"{hms_time}_lambda{config.lambd}_sigma{config.sigma}")
+    results_path = os.path.join(path, "results", "mujoco", env_id, f"{hms_time}_lambda{config.lambd}_sigma{config.sigma}")
     os.makedirs(results_path, exist_ok=True)
 
     with open(os.path.join(results_path, "config.json"), encoding="utf-8", mode="w") as f:
@@ -238,7 +239,7 @@ if __name__ == "__main__":
     print(f"Environment: {config.env_id}")
     print(f"Observation dim: {system.nx}, action dim: {system.nu}, full state dim: {system.state_dim}")
 
-    trajectories = collect_trajectories(system, policy=None, seed=0, num_trajectories=config.traj_per_iter)
+    trajectories = collect_trajectories(system, policy=None, seed=0, num_trajectories=config.traj_per_iter, max_steps=config.M)
     X, U, C, X_next = flatten_trajectories(trajectories)
     D = make_dataset_from_trajectories(
         trajectories,
@@ -282,7 +283,8 @@ if __name__ == "__main__":
             policy=pi_mint,
             sigma=config.sigma,
             seed=t,
-            num_trajectories=config.traj_per_iter
+            num_trajectories=config.traj_per_iter,
+            max_steps=config.M,
         )
         X_new, U_new, C_new, X_next_new = flatten_trajectories(new_trajectories)
 
@@ -349,7 +351,7 @@ if __name__ == "__main__":
 
     axs[2].plot(episodes, avg_bootstrap_steps, label="Average")
     axs[2].plot(episodes, median_bootstrap_steps, c='C0', linestyle='--', label="Median")
-    axs[2].set_title("N-step Bootstrapping statistics")
+    axs[2].set_title(f"N-step Bootstrapping statistics (max={max_bootstrap})")
     axs[2].set_xlabel("Episode")
     axs[2].set_ylabel("Bootstrap steps")
     axs[2].grid(alpha=0.5)
