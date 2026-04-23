@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import random
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
@@ -25,6 +26,13 @@ class Tee:
         """Flush all streams."""
         for stream in self.streams:
             stream.flush()
+
+
+def seed_all(seed: int) -> None:
+    """Seed the RNGs used by the non-expert experiments."""
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
 
 
 def get_cost_to_go(policy: NNRegressor | MINTPolicy, env, x0: np.ndarray, gamma: float):

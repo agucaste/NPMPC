@@ -32,6 +32,10 @@ defaults:
   max_bootstrap: 3
   # Evaluation of J_pi: how many sampels to use
   eval_samples: 1
+  # Whether to log metrics to Weights & Biases
+  use_wandb: True
+  # Weights & Biases project name
+  wandb_project: "non-expert-mujoco"
 
 InvertedPendulum-v5:
   env_id: "InvertedPendulum-v5"

@@ -1,4 +1,5 @@
 import os
+import random
 import sys
 import time
 
@@ -8,8 +9,18 @@ import numpy as np
 
 from core.config import Config, load_yaml
 from core.nn_policy import MINTPolicy, configure_faiss_threads
-from non_expert.helpers import J_upper_bound, Q_upper_bound, Tee, find_fixed_point_v2, find_fixed_point_v3
+from non_expert.helpers import (
+    J_upper_bound,
+    Q_upper_bound,
+    Tee,
+    find_fixed_point_v2,
+    find_fixed_point_v3,
+    seed_all,
+)
+from non_expert.logger import Logger
 from non_expert.mujoco_system import GymSystem, MujocoSystem
+
+EVAL_SEED_OFFSET = 11_426
 
 
 def make_system(env):
@@ -120,7 +131,7 @@ def collect_trajectories(system, policy=None, sigma=0.0, seed=None, max_steps=No
     return trajectories
 
 
-def evaluate_policy(system, policy, config, seed_offset=0):
+def evaluate_policy(system, policy, config, seed_offset=11_426):
     returns = []
     for i in range(config.eval_samples):
         obs = system.reset(seed=seed_offset + i)
@@ -139,19 +150,6 @@ def evaluate_policy(system, policy, config, seed_offset=0):
         returns.append(G)
 
     return np.asarray(returns, dtype=float)
-
-
-def print_metric_table(rows):
-    rows = [(str(key), str(value)) for key, value in rows]
-    key_width = max(len(key) for key, _ in rows)
-    value_width = max(len(value) for _, value in rows)
-
-    print(f"┏{'━' * (key_width + 2)}┳{'━' * (value_width + 2)}┓")
-    print(f"┃ {'Metric'.ljust(key_width)} ┃ {'Value'.ljust(value_width)}┃")
-    print(f"┡{'━' * (key_width + 2)}╇{'━' * (value_width + 2)}┩")
-    for key, value in rows:
-        print(f"│ {key.ljust(key_width)} │ {value.ljust(value_width)} │")
-    print(f"└{'─' * (key_width + 2)}┴{'─' * (value_width + 2)}┘")
 
 
 def load_mujoco_config(cfg_path, env_id):
@@ -193,24 +191,58 @@ if __name__ == "__main__":
         if value is not None
     }
     config.recursive_update(overrides)
+    config.recursive_update({"seed": random.randrange(0, 1000)})
+    seed_all(config.seed)
 
     configure_faiss_threads(config.faiss_threads)
     os.environ["MINT_DISTANCE_BATCH_SIZE"] = str(config.distance_batch_size)
 
     # Make folder to save results
     hms_time = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
-    results_path = os.path.join(path, "results", "mujoco", env_id, f"{hms_time}_lambda{config.lambd}_sigma{config.sigma}")
+    results_path = os.path.join(
+        path,
+        "results",
+        "mujoco",
+        env_id,
+        f"seed-{config.seed}-{hms_time}",
+    )
     os.makedirs(results_path, exist_ok=True)
-
-    with open(os.path.join(results_path, "config.json"), encoding="utf-8", mode="w") as f:
-        f.write(config.tojson())
 
     # Redirect output to output.txt
     output_file = open(os.path.join(results_path, "output.txt"), "w", encoding="utf-8")
+    original_stdout = sys.stdout
     sys.stdout = Tee(sys.stdout, output_file)
+
+    logger = Logger(
+        output_dir=results_path,
+        exp_name=f"{config.env_id}",
+        use_wandb=getattr(config, "use_wandb", False),
+        config=config,
+        wandb_name=f"{config.env_id}-seed-{config.seed}-{hms_time}",
+    )
+    for key in [
+        "Train/Iteration",
+        "Data/NewSamples",
+        "Data/ImprovingPoints",
+        "Data/CollectedPoints",
+        "Data/DatasetSize",
+        "Data/PrunedPoints",
+        "FixedPoint/Steps",
+        "Bootstrap/Average",
+        "Bootstrap/Median",
+        "Eval/MedianReturn",
+        "Time/Total",
+        "Time/Update",
+        "Time/Evaluate",
+    ]:
+        if key in {"Bootstrap/Average", "Bootstrap/Median", "Eval/MedianReturn"}:
+            logger.register_key(key, display_format=".1f")
+        else:
+            logger.register_key(key)
 
 
     env = gym.make(config.env_id)
+    env.action_space.seed(config.seed)
     system = make_system(env)
     do_bootstrap = config.do_bootstrap
     max_bootstrap = config.max_bootstrap
@@ -236,11 +268,24 @@ if __name__ == "__main__":
         )
         return Q, 1.0, 1.0, None
 
-    print(f"Environment: {config.env_id}")
-    print(f"Observation dim: {system.nx}, action dim: {system.nu}, full state dim: {system.state_dim}")
+    logger.log(f"Environment: {config.env_id}")
+    logger.log(f"Seed: {config.seed}")
+    logger.log(
+        f"Observation dim: {system.nx}, action dim: {system.nu}, full state dim: {system.state_dim}",
+    )
 
-    trajectories = collect_trajectories(system, policy=None, seed=0, num_trajectories=config.traj_per_iter, max_steps=config.M)
+    experiment_start_time = time.time()
+
+    trajectories = collect_trajectories(
+        system,
+        policy=None,
+        seed=config.seed,
+        num_trajectories=config.traj_per_iter,
+        max_steps=config.M,
+    )
     X, U, C, X_next = flatten_trajectories(trajectories)
+
+    update_start_time = time.time()
     D = make_dataset_from_trajectories(
         trajectories,
         system,
@@ -260,34 +305,47 @@ if __name__ == "__main__":
 
     pi_mint = MINTPolicy(nx=system.nx, nu=system.nu, k=config.k, lambd=config.lambd)
     pi_mint.set_data(X, U, Q)
-    eval_returns = evaluate_policy(system, pi_mint, config, seed_offset=10_000)
+    update_time = time.time() - update_start_time
+
+    evaluate_start_time = time.time()
+    eval_returns = evaluate_policy(system, pi_mint, config, seed_offset=config.seed + EVAL_SEED_OFFSET)
+    evaluate_time = time.time() - evaluate_start_time
     median_returns[0] = np.median(eval_returns)
     dataset_sizes[0] = len(X)
     pruned_points[0] = pruned
     avg_bootstrap_steps[0] = avg_bootstrap
     median_bootstrap_steps[0] = median_bootstrap
-    print_metric_table([
-        ("Train/Iteration", 0),
-        ("Data/InitialSamples", initial_samples),
-        ("Data/DatasetSize", len(X)),
-        ("Data/PrunedPoints", pruned),
-        ("FixedPoint/Steps", fixed_point_steps if fixed_point_steps is not None else "n/a"),
-        ("Bootstrap/Average", f"{avg_bootstrap:.1f}"),
-        ("Bootstrap/Median", f"{median_bootstrap:.1f}"),
-        ("Eval/MedianReturn", f"{median_returns[0]:.1f}"),
-    ])
+    logger.store(
+        {
+            "Train/Iteration": 0,
+            "Data/NewSamples": initial_samples,
+            "Data/ImprovingPoints": np.nan,
+            "Data/CollectedPoints": np.nan,
+            "Data/DatasetSize": len(X),
+            "Data/PrunedPoints": pruned,
+            "FixedPoint/Steps": np.nan if fixed_point_steps is None else fixed_point_steps,
+            "Bootstrap/Average": avg_bootstrap,
+            "Bootstrap/Median": median_bootstrap,
+            "Eval/MedianReturn": median_returns[0],
+            "Time/Total": time.time() - experiment_start_time,
+            "Time/Update": update_time,
+            "Time/Evaluate": evaluate_time,
+        },
+    )
+    logger.dump_tabular()
 
     for t in range(1, config.max_iter + 1):
         new_trajectories = collect_trajectories(
             system,
             policy=pi_mint,
             sigma=config.sigma,
-            seed=t,
+            seed=config.seed + t * config.traj_per_iter,
             num_trajectories=config.traj_per_iter,
             max_steps=config.M,
         )
         X_new, U_new, C_new, X_next_new = flatten_trajectories(new_trajectories)
 
+        update_start_time = time.time()
         Q_new = J_upper_bound(X_new, X, Q, config.lambd)
         TQ_new = C_new + config.gamma * J_upper_bound(X_next_new, X, Q, config.lambd)
         improves = TQ_new < Q_new
@@ -315,25 +373,34 @@ if __name__ == "__main__":
 
             pi_mint.set_data(X, U, Q)
 
-        eval_returns = evaluate_policy(system, pi_mint, config, seed_offset=10_000)
+        update_time = time.time() - update_start_time
+
+        evaluate_start_time = time.time()
+        eval_returns = evaluate_policy(system, pi_mint, config, seed_offset=config.seed + EVAL_SEED_OFFSET)
+        evaluate_time = time.time() - evaluate_start_time
         median_returns[t] = np.median(eval_returns)
         dataset_sizes[t] = len(X)
         pruned_points[t] = pruned
         avg_bootstrap_steps[t] = avg_bootstrap
         median_bootstrap_steps[t] = median_bootstrap
-        print()
-        print_metric_table([
-            ("Train/Iteration", t),
-            ("Data/NewSamples", len(X_new)),
-            ("Data/ImprovingPoints", int(improving_points[t])),
-            ("Data/CollectedPoints", len(TQ_new)),
-            ("Data/DatasetSize", len(X)),
-            ("Data/PrunedPoints", pruned),
-            ("FixedPoint/Steps", fixed_point_steps if fixed_point_steps is not None else "n/a"),
-            ("Bootstrap/Average", f"{avg_bootstrap:.1f}"),
-            ("Bootstrap/Median", f"{median_bootstrap:.1f}"),
-            ("Eval/MedianReturn", f"{median_returns[t]:.1f}"),
-        ])
+        logger.store(
+            {
+                "Train/Iteration": t,
+                "Data/NewSamples": len(X_new),
+                "Data/ImprovingPoints": int(improving_points[t]),
+                "Data/CollectedPoints": len(TQ_new),
+                "Data/DatasetSize": len(X),
+                "Data/PrunedPoints": pruned,
+                "FixedPoint/Steps": np.nan if fixed_point_steps is None else fixed_point_steps,
+                "Bootstrap/Average": avg_bootstrap,
+                "Bootstrap/Median": median_bootstrap,
+                "Eval/MedianReturn": median_returns[t],
+                "Time/Total": time.time() - experiment_start_time,
+                "Time/Update": update_time,
+                "Time/Evaluate": evaluate_time,
+            },
+        )
+        logger.dump_tabular()
 
     episodes = np.arange(config.max_iter + 1)
     fig, axs = plt.subplots(1, 4, figsize=(24, 5))
@@ -387,3 +454,6 @@ if __name__ == "__main__":
         env_id=config.env_id,
     )
     env.close()
+    logger.close()
+    sys.stdout = original_stdout
+    output_file.close()
