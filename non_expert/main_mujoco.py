@@ -2,13 +2,14 @@ import os
 import random
 import sys
 import time
+from pathlib import Path
 
 from matplotlib import pyplot as plt
 import gymnasium as gym
 import numpy as np
 
 from core.config import Config, load_yaml
-from core.nn_policy import MINTPolicy, configure_faiss_threads
+from core.nn_policy import EncodedMINTPolicy, configure_faiss_threads
 from non_expert.helpers import (
     J_upper_bound,
     Q_upper_bound,
@@ -19,6 +20,7 @@ from non_expert.helpers import (
 )
 from non_expert.logger import Logger
 from non_expert.mujoco_system import GymSystem, MujocoSystem
+from non_expert.observation_encoders import encode_trajectories, load_observation_encoder
 
 EVAL_SEED_OFFSET = 11_426
 
@@ -81,6 +83,48 @@ def prune_dataset(X, U, C, X_next, D, Q, lambd):
         np.delete(Q, to_prune, axis=0),
         len(to_prune),
     )
+
+
+def empirical_lipschitz_constant(X, Q):
+    X = np.asarray(X, dtype=float)
+    Q = np.asarray(Q, dtype=float).reshape(-1)
+
+    if X.shape[0] != Q.shape[0]:
+        raise ValueError(f"X and Q must have the same number of rows, got {X.shape[0]} and {Q.shape[0]}")
+    if X.shape[0] < 2:
+        return 0.0
+
+    X = X.reshape(X.shape[0], -1)
+    batch_size = int(os.environ.get("MINT_DISTANCE_BATCH_SIZE", 2048))
+    x_norm_sq = np.sum(X * X, axis=1)
+    max_ratio = 0.0
+
+    for start in range(0, X.shape[0], batch_size):
+        stop = min(start + batch_size, X.shape[0])
+        dist_sq = x_norm_sq[start:stop, None] + x_norm_sq[None, :] - 2.0 * (X[start:stop] @ X.T)
+        dist_sq = np.maximum(dist_sq, 0.0)
+        q_diff = np.abs(Q[start:stop, None] - Q[None, :])
+
+        row_idx = np.arange(start, stop)
+        dist_sq[np.arange(stop - start), row_idx] = np.nan
+
+        duplicate_mask = dist_sq == 0.0
+        if np.any(duplicate_mask & (q_diff > 0.0)):
+            return float("inf")
+
+        valid = dist_sq > 0.0
+        if np.any(valid):
+            ratios = q_diff[valid] / np.sqrt(dist_sq[valid])
+            max_ratio = max(max_ratio, float(np.max(ratios)))
+
+    return max_ratio
+
+
+def logged_lipschitz_constant(iteration, X, Q, every, previous):
+    every = int(every)
+    if every <= 0 or iteration % every != 0:
+        return previous
+    return empirical_lipschitz_constant(X, Q)
 
 
 def flatten_trajectories(trajectories):
@@ -227,6 +271,7 @@ if __name__ == "__main__":
         "Data/CollectedPoints",
         "Data/DatasetSize",
         "Data/PrunedPoints",
+        "Data/LipschitzEmpirical",
         "FixedPoint/Steps",
         "Bootstrap/Average",
         "Bootstrap/Median",
@@ -244,6 +289,10 @@ if __name__ == "__main__":
     env = gym.make(config.env_id)
     env.action_space.seed(config.seed)
     system = make_system(env)
+    project_root = Path(path).parent
+    encoder = load_observation_encoder(config, config.env_id, system.nx, project_root)
+    encoder_metadata = getattr(encoder, "metadata", {})
+    feature_dim = int(encoder.output_dim)
     do_bootstrap = config.do_bootstrap
     max_bootstrap = config.max_bootstrap
 
@@ -273,16 +322,21 @@ if __name__ == "__main__":
     logger.log(
         f"Observation dim: {system.nx}, action dim: {system.nu}, full state dim: {system.state_dim}",
     )
+    logger.log(
+        f"Encoder: {encoder.name}, feature dim: {feature_dim}, "
+        f"path: {encoder_metadata.get('path', '<identity>')}",
+    )
 
     experiment_start_time = time.time()
 
-    trajectories = collect_trajectories(
+    raw_trajectories = collect_trajectories(
         system,
         policy=None,
         seed=config.seed,
         num_trajectories=config.traj_per_iter,
         max_steps=config.M,
     )
+    trajectories = encode_trajectories(raw_trajectories, encoder)
     X, U, C, X_next = flatten_trajectories(trajectories)
 
     update_start_time = time.time()
@@ -303,7 +357,7 @@ if __name__ == "__main__":
     avg_bootstrap_steps = np.ones(config.max_iter + 1)
     median_bootstrap_steps = np.ones(config.max_iter + 1)
 
-    pi_mint = MINTPolicy(nx=system.nx, nu=system.nu, k=config.k, lambd=config.lambd)
+    pi_mint = EncodedMINTPolicy(encoder=encoder, nx=feature_dim, nu=system.nu, k=config.k, lambd=config.lambd)
     pi_mint.set_data(X, U, Q)
     update_time = time.time() - update_start_time
 
@@ -315,6 +369,13 @@ if __name__ == "__main__":
     pruned_points[0] = pruned
     avg_bootstrap_steps[0] = avg_bootstrap
     median_bootstrap_steps[0] = median_bootstrap
+    lipschitz_empirical = logged_lipschitz_constant(
+        0,
+        X,
+        Q,
+        config.lipschitz_log_every,
+        previous=np.nan,
+    )
     logger.store(
         {
             "Train/Iteration": 0,
@@ -323,6 +384,7 @@ if __name__ == "__main__":
             "Data/CollectedPoints": np.nan,
             "Data/DatasetSize": len(X),
             "Data/PrunedPoints": pruned,
+            "Data/LipschitzEmpirical": lipschitz_empirical,
             "FixedPoint/Steps": np.nan if fixed_point_steps is None else fixed_point_steps,
             "Bootstrap/Average": avg_bootstrap,
             "Bootstrap/Median": median_bootstrap,
@@ -335,7 +397,7 @@ if __name__ == "__main__":
     logger.dump_tabular()
 
     for t in range(1, config.max_iter + 1):
-        new_trajectories = collect_trajectories(
+        raw_new_trajectories = collect_trajectories(
             system,
             policy=pi_mint,
             sigma=config.sigma,
@@ -343,6 +405,7 @@ if __name__ == "__main__":
             num_trajectories=config.traj_per_iter,
             max_steps=config.M,
         )
+        new_trajectories = encode_trajectories(raw_new_trajectories, encoder)
         X_new, U_new, C_new, X_next_new = flatten_trajectories(new_trajectories)
 
         update_start_time = time.time()
@@ -383,6 +446,13 @@ if __name__ == "__main__":
         pruned_points[t] = pruned
         avg_bootstrap_steps[t] = avg_bootstrap
         median_bootstrap_steps[t] = median_bootstrap
+        lipschitz_empirical = logged_lipschitz_constant(
+            t,
+            X,
+            Q,
+            config.lipschitz_log_every,
+            previous=lipschitz_empirical,
+        )
         logger.store(
             {
                 "Train/Iteration": t,
@@ -391,6 +461,7 @@ if __name__ == "__main__":
                 "Data/CollectedPoints": len(TQ_new),
                 "Data/DatasetSize": len(X),
                 "Data/PrunedPoints": pruned,
+                "Data/LipschitzEmpirical": lipschitz_empirical,
                 "FixedPoint/Steps": np.nan if fixed_point_steps is None else fixed_point_steps,
                 "Bootstrap/Average": avg_bootstrap,
                 "Bootstrap/Median": median_bootstrap,
@@ -452,6 +523,10 @@ if __name__ == "__main__":
         avg_bootstrap_steps=avg_bootstrap_steps,
         median_bootstrap_steps=median_bootstrap_steps,
         env_id=config.env_id,
+        encoder_name=encoder.name,
+        encoder_path=encoder_metadata.get("path", ""),
+        encoder_sha256=encoder_metadata.get("sha256", ""),
+        encoder_feature_dim=feature_dim,
     )
     env.close()
     logger.close()

@@ -11,9 +11,11 @@ defaults:
   # K neighbors
   k: 1000
   # FAISS OpenMP threads per process. Keep low when running multiple jobs on a laptop.
-  faiss_threads: 4
+  faiss_threads: 2
   # Query chunk size for dense distance reductions. Lower uses less RAM but runs slower.
   distance_batch_size: 2048
+  # Compute empirical Lipschitz diagnostics every N iterations. Set <= 0 to disable.
+  lipschitz_log_every: 50
   # Number of initial samples
   M0: 50
   # Number of refinement samples per iteration
@@ -36,16 +38,31 @@ defaults:
   use_wandb: True
   # Weights & Biases project name
   wandb_project: "non-expert-mujoco"
+  # Frozen observation encoder: "auto", "none", or "path".
+  # "auto" loads non_expert/minari/outputs/<EnvName>/pca_encoder.pkl if present.
+  encoder:
+    mode: "none"
+    path:
 
 InvertedPendulum-v5:
   env_id: "InvertedPendulum-v5"
   lambd: 5
   sigma: 3
-  max_iter: 3_00
+  max_iter: 5_000
 
 Pendulum-v1:
   env_id: "Pendulum-v1"
   max_iter: 2_000
+  M: 1000
+  traj_per_iter: 1
+  sigma: 3
+  lambd: 10
+  encoder:
+    mode: "none"
+
+BipedalWalker-v3:
+  env_id: "BipedalWalker-v3"
+  max_iter: 1_000
   M: 1000
   traj_per_iter: 1
   sigma: 3

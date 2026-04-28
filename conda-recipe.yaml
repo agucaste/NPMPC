@@ -18,3 +18,7 @@ dependencies:
   - scikit-learn
   - tqdm
   - pyyaml
+  - imageio
+  - wandb
+  - rich
+  - minari[hf,hdf5]

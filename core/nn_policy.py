@@ -262,6 +262,7 @@ class MINTPolicy(NNRegressor):
         else:
             # print(f"Indices of neighbors: {I}, shape: {I.shape},\ndistances: {D}, shape: {D.shape}")
             # print(f"J has length {len(self.J)}")
+            D = np.sqrt(np.maximum(D, 0.0))  # FAISS IndexFlatL2 returns squared L2 distances.
             J_ub = self.J[I] + self.lambd * D  # Build upper bound
             i = np.argmin(J_ub)  # Act greedily
             return self.u[I[i]].reshape(1, -1)
@@ -269,6 +270,22 @@ class MINTPolicy(NNRegressor):
     @property
     def name(self) -> str:
         return f'MINT_{self.size}_k{self.k}_l{self.lambd}'
+
+
+class EncodedMINTPolicy(MINTPolicy):
+    """MINT policy whose FAISS index lives in frozen encoder space."""
+
+    def __init__(self, encoder, nx: int, nu: int, k: int = 1, lambd: float = 1.0):
+        self.encoder = encoder
+        super().__init__(nx=nx, nu=nu, k=k, lambd=lambd)
+
+    def make_step(self, xq: np.ndarray, w: str = 'equal') -> np.ndarray:
+        zq = self.encoder.encode(xq)
+        return super().make_step(zq, w=w)
+
+    @property
+    def name(self) -> str:
+        return f'Encoded{super().name}_{self.encoder.name}'
 
         
 
