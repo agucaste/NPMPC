@@ -308,7 +308,7 @@ def save_encoder(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--env", choices=DATASET.keys(), default=ENV)
-    parser.add_argument("--components", type=int, default=3)
+    parser.add_argument("--components", type=int, default=4)
     parser.add_argument("--force-download", action="store_true")
     parser.add_argument("--max-plot-points", type=int, default=20_000)
     parser.add_argument("--max-neighborhood-points", type=int, default=2_000)
@@ -321,7 +321,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    output_dir = args.output_dir / args.env
+    if args.env == "InvertedPendulum" or args.env == "HalfCheetah":
+        env = f"{args.env}-v5"
+
+    output_dir = args.output_dir / env
     output_dir.mkdir(parents=True, exist_ok=True)
 
     dataset_ids = DATASET[args.env]

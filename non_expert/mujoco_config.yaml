@@ -41,7 +41,7 @@ defaults:
   # Frozen observation encoder: "auto", "none", or "path".
   # "auto" loads non_expert/minari/outputs/<EnvName>/pca_encoder.pkl if present.
   encoder:
-    mode: "none"
+    mode: "auto"
     path:
 
 InvertedPendulum-v5:
@@ -49,6 +49,9 @@ InvertedPendulum-v5:
   lambd: 5
   sigma: 3
   max_iter: 5_000
+  encoder:
+    mode: path
+    path: "non_expert/minari/outputs/InvertedPendulum-v5-4components/pca_encoder.pkl"
 
 Pendulum-v1:
   env_id: "Pendulum-v1"

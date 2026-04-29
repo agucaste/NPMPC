@@ -47,16 +47,29 @@ def get_cost_to_go(policy: NNRegressor | MINTPolicy, env, x0: np.ndarray, gamma:
     return J.item()
 
 
-def J_upper_bound(y: np.ndarray, x_d: np.ndarray, q: np.ndarray, lambd):
-    """Computes J_ub(y) = min_k { Q(xk) + lambda * dist(xk, y) }."""
+def J_upper_bound(distances: np.ndarray, q: np.ndarray, lambd):
+    """Computes J_ub from query-to-dataset distances: min_k { Q_k + lambda * distance_k }."""
+    q = np.asarray(q, dtype=float).reshape(-1)
     assert q.ndim == 1, "q should be a 1D array"
     if hasattr(lambd, "X"):
         lambd = lambd.X
-    return _min_lipschitz_values(as_rows(x_d), as_rows(y), q, lambd)
+    distances = np.asarray(distances, dtype=float)
+    if distances.ndim == 1:
+        distances = distances.reshape(1, -1)
+    assert distances.shape[1] == q.shape[0], "distances columns must match q"
+    return np.min(q[None, :] + lambd * distances, axis=1)
 
 
-def Q_upper_bound(y: np.ndarray, u: np.ndarray, x_d: np.ndarray, u_d: np.ndarray, q: np.ndarray, lambd):
-    """Computes Q_ub(y, u) = min_k { Q(xk, uk) + lambda * dist(xk, y) + lambda * dist(uk, u) }."""
+def Q_upper_bound(
+    y: np.ndarray,
+    u: np.ndarray,
+    x_d: np.ndarray,
+    u_d: np.ndarray,
+    q: np.ndarray,
+    lambd,
+    batch_size: Optional[int] = None,
+):
+    """Computes Q_ub(y, u) from metric-space points y/x_d and action-space points u/u_d."""
     assert q.ndim == 1, "q should be a 1D array"
     if hasattr(lambd, "X"):
         lambd = lambd.X
@@ -64,7 +77,7 @@ def Q_upper_bound(y: np.ndarray, u: np.ndarray, x_d: np.ndarray, u_d: np.ndarray
     u = as_rows(u)
     x_d = as_rows(x_d)
     u_d = as_rows(u_d)
-    batch_size = _distance_batch_size()
+    batch_size = _distance_batch_size() if batch_size is None else max(1, int(batch_size))
     out = np.empty(y.shape[0], dtype=float)
 
     for start in range(0, y.shape[0], batch_size):
@@ -123,7 +136,7 @@ def _min_lipschitz_values(
     lambd: float,
     batch_size: Optional[int] = None,
 ) -> np.ndarray:
-    """Computes min_i q_i + lambda * ||x_i - y_j|| without an N x M allocation."""
+    """Computes min_i q_i + lambda * ||x_i - y_j|| in the provided metric space."""
     x_d = as_rows(x_d)
     y = as_rows(y)
     q = np.asarray(q, dtype=float).reshape(-1)
@@ -147,12 +160,14 @@ def find_fixed_point_v2(
     tol: float = 1e-3,
     max_iter: int = 1000,
     warm_Q: Optional[np.ndarray] = None,
+    batch_size: Optional[int] = None,
 ):
     """
     Vectorized version of function `find_fixed_point`.
     Finds the fixed point of the Bellman operator T^Qub:
 
     (TQ)i = ci + gamma * min_k { Q(xk) + lambda * dist(xk, xi') }
+    The x entries in D are points in the chosen metric space, e.g. encoded observations.
     """
     assert len(D) > 0 and lambd > 0 and 0 < gamma < 1, "Invalid inputs"
 
@@ -167,7 +182,7 @@ def find_fixed_point_v2(
 
     Q = np.zeros(x.shape[0]) if warm_Q is None else np.concatenate([warm_Q, np.zeros(len(D) - len(warm_Q))])
     for it in range(max_iter):
-        Q_next = c + gamma * _min_lipschitz_values(x, x_next, Q, lambd)
+        Q_next = c + gamma * _min_lipschitz_values(x, x_next, Q, lambd, batch_size=batch_size)
 
         if np.max(np.abs(Q_next - Q)) < tol:
             print(f"Value Iteration Converged after {it} steps.")
@@ -185,12 +200,15 @@ def find_fixed_point_v3(
     max_iter: int = 1000,
     warm_Q: Optional[np.ndarray] = None,
     K: int = 5,
+    batch_size: Optional[int] = None,
 ):
     r"""
     K-step bootstrapped version of `find_fixed_point_v2`.
     Solves value iteration with (optimistic) k-step bootstrapping, 1 <= k <= K.
 
     (TQ)_i = \min_{1 <= k <= K} c + γ*c' + γ^2*c'' + ... + γ^{k-1}*c'^{k-1} + γ^k * min_j { Q(xj) + λ*dist(xj, x'^{k}) }
+
+    The x entries in D are points in the chosen metric space, e.g. encoded observations.
 
     Args:
         D (List[Tuple]): Dataset of transitions (xi, ui, ci, xi', ui', ci', xi'', ui'', ci'', ...).
@@ -233,7 +251,7 @@ def find_fixed_point_v3(
     for it in range(max_iter):
         bootstraps = np.vstack(
             [
-                _min_lipschitz_values(x, x_nexts[k], Q, lambd)
+                _min_lipschitz_values(x, x_nexts[k], Q, lambd, batch_size=batch_size)
                 for k in range(K)
             ]
         )

@@ -12,7 +12,6 @@ from core.config import Config, load_yaml
 from core.nn_policy import EncodedMINTPolicy, configure_faiss_threads
 from non_expert.helpers import (
     J_upper_bound,
-    Q_upper_bound,
     Tee,
     find_fixed_point_v2,
     find_fixed_point_v3,
@@ -22,7 +21,7 @@ from non_expert.logger import Logger
 from non_expert.mujoco_system import GymSystem, MujocoSystem
 from non_expert.observation_encoders import encode_trajectories, load_observation_encoder
 
-EVAL_SEED_OFFSET = 11_426
+EVAL_SEED_OFFSET = 1_14_26
 
 
 def make_system(env):
@@ -31,24 +30,24 @@ def make_system(env):
     return GymSystem(env)
 
 
-def make_dataset(X, U, C, X_next, system, do_bootstrap=False, max_bootstrap=1):
+def make_dataset(Z, U, C, Z_next, system, do_bootstrap=False, max_bootstrap=1):
     if not do_bootstrap:
-        return [(x, u, c, x_next) for x, u, c, x_next in zip(X, U, C, X_next)]
+        return [(z, u, c, z_next) for z, u, c, z_next in zip(Z, U, C, Z_next)]
 
     D = []
-    for i in range(len(X)):
+    for i in range(len(Z)):
         transition = []
-        last_obs = X[i]
+        last_feature = Z[i]
 
         for step in range(max_bootstrap):
             j = i + step
-            if j < len(X):
-                transition.extend([X[j], U[j], C[j]])
-                last_obs = X_next[j]
+            if j < len(Z):
+                transition.extend([Z[j], U[j], C[j]])
+                last_feature = Z_next[j]
             else:
-                transition.extend([last_obs, np.zeros(system.nu), 0.0])
+                transition.extend([last_feature, np.zeros(system.nu), 0.0])
 
-        transition.append(last_obs)
+        transition.append(last_feature)
         D.append(tuple(transition))
 
     return D
@@ -56,12 +55,12 @@ def make_dataset(X, U, C, X_next, system, do_bootstrap=False, max_bootstrap=1):
 
 def make_dataset_from_trajectories(trajectories, system, do_bootstrap=False, max_bootstrap=1):
     D = []
-    for X, U, C, X_next in trajectories:
+    for Z, U, C, Z_next in trajectories:
         D.extend(make_dataset(
-            X,
+            Z,
             U,
             C,
-            X_next,
+            Z_next,
             system,
             do_bootstrap=do_bootstrap,
             max_bootstrap=max_bootstrap,
@@ -69,39 +68,39 @@ def make_dataset_from_trajectories(trajectories, system, do_bootstrap=False, max
     return D
 
 
-def prune_dataset(X, U, C, X_next, D, Q, lambd):
-    J_ub = J_upper_bound(X, X, Q, lambd)
+def prune_dataset(Z, U, C, Z_next, D, Q, distances, lambd):
+    J_ub = J_upper_bound(distances, Q, lambd)
     to_prune = np.where(Q > J_ub)[0]
-    keep = np.ones(len(X), dtype=bool)
+    keep = np.ones(len(Z), dtype=bool)
     keep[to_prune] = False
     return (
-        np.delete(X, to_prune, axis=0),
+        np.delete(Z, to_prune, axis=0),
         np.delete(U, to_prune, axis=0),
         np.delete(C, to_prune, axis=0),
-        np.delete(X_next, to_prune, axis=0),
+        np.delete(Z_next, to_prune, axis=0),
         [d for d, should_keep in zip(D, keep) if should_keep],
         np.delete(Q, to_prune, axis=0),
         len(to_prune),
     )
 
 
-def empirical_lipschitz_constant(X, Q):
-    X = np.asarray(X, dtype=float)
+def empirical_lipschitz_constant(Z, Q, batch_size):
+    Z = np.asarray(Z, dtype=float)
     Q = np.asarray(Q, dtype=float).reshape(-1)
 
-    if X.shape[0] != Q.shape[0]:
-        raise ValueError(f"X and Q must have the same number of rows, got {X.shape[0]} and {Q.shape[0]}")
-    if X.shape[0] < 2:
+    if Z.shape[0] != Q.shape[0]:
+        raise ValueError(f"Z and Q must have the same number of rows, got {Z.shape[0]} and {Q.shape[0]}")
+    if Z.shape[0] < 2:
         return 0.0
 
-    X = X.reshape(X.shape[0], -1)
-    batch_size = int(os.environ.get("MINT_DISTANCE_BATCH_SIZE", 2048))
-    x_norm_sq = np.sum(X * X, axis=1)
+    Z = Z.reshape(Z.shape[0], -1)
+    batch_size = max(1, int(batch_size))
+    z_norm_sq = np.sum(Z * Z, axis=1)
     max_ratio = 0.0
 
-    for start in range(0, X.shape[0], batch_size):
-        stop = min(start + batch_size, X.shape[0])
-        dist_sq = x_norm_sq[start:stop, None] + x_norm_sq[None, :] - 2.0 * (X[start:stop] @ X.T)
+    for start in range(0, Z.shape[0], batch_size):
+        stop = min(start + batch_size, Z.shape[0])
+        dist_sq = z_norm_sq[start:stop, None] + z_norm_sq[None, :] - 2.0 * (Z[start:stop] @ Z.T)
         dist_sq = np.maximum(dist_sq, 0.0)
         q_diff = np.abs(Q[start:stop, None] - Q[None, :])
 
@@ -120,21 +119,26 @@ def empirical_lipschitz_constant(X, Q):
     return max_ratio
 
 
-def logged_lipschitz_constant(iteration, X, Q, every, previous):
+def logged_lipschitz_constant(iteration, Z, Q, every, previous, batch_size):
     every = int(every)
     if every <= 0 or iteration % every != 0:
         return previous
-    return empirical_lipschitz_constant(X, Q)
+    return empirical_lipschitz_constant(Z, Q, batch_size=batch_size)
 
 
 def flatten_trajectories(trajectories):
-    X, U, C, X_next = zip(*trajectories)
+    Z, U, C, Z_next = zip(*trajectories)
     return (
-        np.concatenate(X, axis=0),
+        np.concatenate(Z, axis=0),
         np.concatenate(U, axis=0),
         np.concatenate(C, axis=0),
-        np.concatenate(X_next, axis=0),
+        np.concatenate(Z_next, axis=0),
     )
+
+
+def assert_feature_dim(Z, Z_next, feature_dim):
+    assert Z.shape[1] == feature_dim, f"Expected feature dim {feature_dim}, got Z shape {Z.shape}"
+    assert Z_next.shape[1] == feature_dim, f"Expected feature dim {feature_dim}, got Z_next shape {Z_next.shape}"
 
 
 def collect_trajectories(system, policy=None, sigma=0.0, seed=None, max_steps=None, num_trajectories: int = 1):
@@ -142,7 +146,7 @@ def collect_trajectories(system, policy=None, sigma=0.0, seed=None, max_steps=No
     for traj_idx in range(num_trajectories):
         traj_seed = None if seed is None else seed + traj_idx
         obs = system.reset(seed=traj_seed)
-        X, U, C, X_next = [], [], [], []
+        obs_list, U, C, obs_next_list = [], [], [], []
         steps = 0
 
         while True:
@@ -155,10 +159,10 @@ def collect_trajectories(system, policy=None, sigma=0.0, seed=None, max_steps=No
 
             cost, obs_next, done = system.transition(u)
 
-            X.append(obs)
+            obs_list.append(obs)
             U.append(u)
             C.append(cost)
-            X_next.append(obs_next)
+            obs_next_list.append(obs_next)
 
             obs = obs_next
             steps += 1
@@ -166,10 +170,10 @@ def collect_trajectories(system, policy=None, sigma=0.0, seed=None, max_steps=No
                 break
 
         trajectories.append((
-            np.asarray(X, dtype=float),
+            np.asarray(obs_list, dtype=float),
             np.asarray(U, dtype=float),
             np.asarray(C, dtype=float),
-            np.asarray(X_next, dtype=float),
+            np.asarray(obs_next_list, dtype=float),
         ))
 
     return trajectories
@@ -239,7 +243,6 @@ if __name__ == "__main__":
     seed_all(config.seed)
 
     configure_faiss_threads(config.faiss_threads)
-    os.environ["MINT_DISTANCE_BATCH_SIZE"] = str(config.distance_batch_size)
 
     # Make folder to save results
     hms_time = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
@@ -295,6 +298,7 @@ if __name__ == "__main__":
     feature_dim = int(encoder.output_dim)
     do_bootstrap = config.do_bootstrap
     max_bootstrap = config.max_bootstrap
+    pi_mint = EncodedMINTPolicy(encoder=encoder, nx=feature_dim, nu=system.nu, k=config.k, lambd=config.lambd)
 
     def solve_Q(D, warm_Q=None):
         if do_bootstrap:
@@ -306,6 +310,7 @@ if __name__ == "__main__":
                 max_iter=config.q_iter,
                 warm_Q=warm_Q,
                 K=max_bootstrap,
+                batch_size=config.distance_batch_size,
             )
         Q = find_fixed_point_v2(
             D,
@@ -314,6 +319,7 @@ if __name__ == "__main__":
             tol=config.q_tol,
             max_iter=config.q_iter,
             warm_Q=warm_Q,
+            batch_size=config.distance_batch_size,
         )
         return Q, 1.0, 1.0, None
 
@@ -326,6 +332,7 @@ if __name__ == "__main__":
         f"Encoder: {encoder.name}, feature dim: {feature_dim}, "
         f"path: {encoder_metadata.get('path', '<identity>')}",
     )
+    logger.log("MINT metric space: encoded observations")
 
     experiment_start_time = time.time()
 
@@ -336,19 +343,31 @@ if __name__ == "__main__":
         num_trajectories=config.traj_per_iter,
         max_steps=config.M,
     )
-    trajectories = encode_trajectories(raw_trajectories, encoder)
-    X, U, C, X_next = flatten_trajectories(trajectories)
+    encoded_trajectories = encode_trajectories(raw_trajectories, encoder)
+    Z, U, C, Z_next = flatten_trajectories(encoded_trajectories)
+    assert_feature_dim(Z, Z_next, feature_dim)
 
     update_start_time = time.time()
     D = make_dataset_from_trajectories(
-        trajectories,
+        encoded_trajectories,
         system,
         do_bootstrap=do_bootstrap,
         max_bootstrap=max_bootstrap,
     )
     initial_samples = len(D)
     Q, avg_bootstrap, median_bootstrap, fixed_point_steps = solve_Q(D)
-    X, U, C, X_next, D, Q, pruned = prune_dataset(X, U, C, X_next, D, Q, config.lambd)
+    pi_mint.set_data(Z, U, Q)
+    distances = pi_mint.distances_to_dataset(Z, batch_size=config.distance_batch_size)
+    Z, U, C, Z_next, D, Q, pruned = prune_dataset(
+        Z,
+        U,
+        C,
+        Z_next,
+        D,
+        Q,
+        distances,
+        config.lambd,
+    )
 
     median_returns = np.zeros(config.max_iter + 1)
     dataset_sizes = np.zeros(config.max_iter + 1)
@@ -357,24 +376,25 @@ if __name__ == "__main__":
     avg_bootstrap_steps = np.ones(config.max_iter + 1)
     median_bootstrap_steps = np.ones(config.max_iter + 1)
 
-    pi_mint = EncodedMINTPolicy(encoder=encoder, nx=feature_dim, nu=system.nu, k=config.k, lambd=config.lambd)
-    pi_mint.set_data(X, U, Q)
+    pi_mint.set_data(Z, U, Q)
+    assert pi_mint.nx == feature_dim, f"Expected MINT feature dim {feature_dim}, got {pi_mint.nx}"
     update_time = time.time() - update_start_time
 
     evaluate_start_time = time.time()
     eval_returns = evaluate_policy(system, pi_mint, config, seed_offset=config.seed + EVAL_SEED_OFFSET)
     evaluate_time = time.time() - evaluate_start_time
     median_returns[0] = np.median(eval_returns)
-    dataset_sizes[0] = len(X)
+    dataset_sizes[0] = len(Z)
     pruned_points[0] = pruned
     avg_bootstrap_steps[0] = avg_bootstrap
     median_bootstrap_steps[0] = median_bootstrap
     lipschitz_empirical = logged_lipschitz_constant(
         0,
-        X,
+        Z,
         Q,
         config.lipschitz_log_every,
         previous=np.nan,
+        batch_size=config.distance_batch_size,
     )
     logger.store(
         {
@@ -382,7 +402,7 @@ if __name__ == "__main__":
             "Data/NewSamples": initial_samples,
             "Data/ImprovingPoints": np.nan,
             "Data/CollectedPoints": np.nan,
-            "Data/DatasetSize": len(X),
+            "Data/DatasetSize": len(Z),
             "Data/PrunedPoints": pruned,
             "Data/LipschitzEmpirical": lipschitz_empirical,
             "FixedPoint/Steps": np.nan if fixed_point_steps is None else fixed_point_steps,
@@ -405,12 +425,15 @@ if __name__ == "__main__":
             num_trajectories=config.traj_per_iter,
             max_steps=config.M,
         )
-        new_trajectories = encode_trajectories(raw_new_trajectories, encoder)
-        X_new, U_new, C_new, X_next_new = flatten_trajectories(new_trajectories)
+        encoded_new_trajectories = encode_trajectories(raw_new_trajectories, encoder)
+        Z_new, U_new, C_new, Z_next_new = flatten_trajectories(encoded_new_trajectories)
+        assert_feature_dim(Z_new, Z_next_new, feature_dim)
 
         update_start_time = time.time()
-        Q_new = J_upper_bound(X_new, X, Q, config.lambd)
-        TQ_new = C_new + config.gamma * J_upper_bound(X_next_new, X, Q, config.lambd)
+        distances_new = pi_mint.distances_to_dataset(Z_new, batch_size=config.distance_batch_size)
+        distances_next_new = pi_mint.distances_to_dataset(Z_next_new, batch_size=config.distance_batch_size)
+        Q_new = J_upper_bound(distances_new, Q, config.lambd)
+        TQ_new = C_new + config.gamma * J_upper_bound(distances_next_new, Q, config.lambd)
         improves = TQ_new < Q_new
         improving_points[t] = np.sum(improves)
 
@@ -420,21 +443,32 @@ if __name__ == "__main__":
         median_bootstrap = median_bootstrap_steps[t - 1]
         if np.any(improves):
             D_new = make_dataset_from_trajectories(
-                new_trajectories,
+                encoded_new_trajectories,
                 system,
                 do_bootstrap=do_bootstrap,
                 max_bootstrap=max_bootstrap,
             )
 
-            X = np.concatenate([X, X_new[improves]], axis=0)
+            Z = np.concatenate([Z, Z_new[improves]], axis=0)
             U = np.concatenate([U, U_new[improves]], axis=0)
             C = np.concatenate([C, C_new[improves]], axis=0)
-            X_next = np.concatenate([X_next, X_next_new[improves]], axis=0)
+            Z_next = np.concatenate([Z_next, Z_next_new[improves]], axis=0)
             D.extend([d for d, improve in zip(D_new, improves) if improve])
             Q, avg_bootstrap, median_bootstrap, fixed_point_steps = solve_Q(D, warm_Q=Q)
-            X, U, C, X_next, D, Q, pruned = prune_dataset(X, U, C, X_next, D, Q, config.lambd)
+            pi_mint.set_data(Z, U, Q)
+            distances = pi_mint.distances_to_dataset(Z, batch_size=config.distance_batch_size)
+            Z, U, C, Z_next, D, Q, pruned = prune_dataset(
+                Z,
+                U,
+                C,
+                Z_next,
+                D,
+                Q,
+                distances,
+                config.lambd,
+            )
 
-            pi_mint.set_data(X, U, Q)
+            pi_mint.set_data(Z, U, Q)
 
         update_time = time.time() - update_start_time
 
@@ -442,24 +476,25 @@ if __name__ == "__main__":
         eval_returns = evaluate_policy(system, pi_mint, config, seed_offset=config.seed + EVAL_SEED_OFFSET)
         evaluate_time = time.time() - evaluate_start_time
         median_returns[t] = np.median(eval_returns)
-        dataset_sizes[t] = len(X)
+        dataset_sizes[t] = len(Z)
         pruned_points[t] = pruned
         avg_bootstrap_steps[t] = avg_bootstrap
         median_bootstrap_steps[t] = median_bootstrap
         lipschitz_empirical = logged_lipschitz_constant(
             t,
-            X,
+            Z,
             Q,
             config.lipschitz_log_every,
             previous=lipschitz_empirical,
+            batch_size=config.distance_batch_size,
         )
         logger.store(
             {
                 "Train/Iteration": t,
-                "Data/NewSamples": len(X_new),
+                "Data/NewSamples": len(Z_new),
                 "Data/ImprovingPoints": int(improving_points[t]),
                 "Data/CollectedPoints": len(TQ_new),
-                "Data/DatasetSize": len(X),
+                "Data/DatasetSize": len(Z),
                 "Data/PrunedPoints": pruned,
                 "Data/LipschitzEmpirical": lipschitz_empirical,
                 "FixedPoint/Steps": np.nan if fixed_point_steps is None else fixed_point_steps,
@@ -511,10 +546,10 @@ if __name__ == "__main__":
 
     np.savez(
         os.path.join(results_path, "mujoco_results.npz"),
-        X=X,
+        Z=Z,
         U=U,
         C=C,
-        X_next=X_next,
+        Z_next=Z_next,
         Q=Q,
         median_values=median_returns,
         dataset_sizes=dataset_sizes,

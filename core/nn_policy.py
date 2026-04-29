@@ -216,6 +216,50 @@ class MINTPolicy(NNRegressor):
         self.J = J
         self._check_consistency()
 
+    def distances_to_dataset(self, Z_query: np.ndarray, batch_size: int | None = None) -> np.ndarray:
+        """Euclidean distances from query features to stored MINT feature dataset."""
+        if self.size == 0:
+            raise ValueError("Cannot compute distances with an empty policy dataset.")
+        if not hasattr(self.x, "compute_distance_subset"):
+            raise RuntimeError("This FAISS build does not expose compute_distance_subset.")
+
+        Z_query = np.ascontiguousarray(np.asarray(Z_query, dtype=np.float32).reshape(-1, self.nx))
+        batch_size = Z_query.shape[0] if batch_size is None else max(1, int(batch_size))
+        distances = np.empty((Z_query.shape[0], self.size), dtype=np.float32)
+        all_labels = np.arange(self.size, dtype=np.int64)
+
+        for start in range(0, Z_query.shape[0], batch_size):
+            stop = min(start + batch_size, Z_query.shape[0])
+            n_batch = stop - start
+            labels = np.ascontiguousarray(np.broadcast_to(all_labels, (n_batch, self.size)))
+            query_batch = np.ascontiguousarray(Z_query[start:stop], dtype=np.float32)
+            self.x.compute_distance_subset(
+                n_batch,
+                fa.swig_ptr(query_batch),
+                self.size,
+                fa.swig_ptr(distances[start:stop]),
+                fa.swig_ptr(labels),
+            )
+
+        return np.sqrt(np.maximum(distances, 0.0))
+
+    def J_upper_bound(
+        self,
+        xq: np.ndarray,
+        neighbors: int | None = None,
+        batch_size: int | None = None,
+    ) -> np.ndarray:
+        """
+        Compute J_ub queries for non_expert/main_mujoco using this policy's FAISS index.
+
+        Disabled for now: use distances_to_dataset(...) plus non_expert.helpers.J_upper_bound(...)
+        so distance computation and upper-bound reduction stay separate.
+        """
+        raise NotImplementedError(
+            "MINTPolicy.J_upper_bound is disabled. Use distances_to_dataset(...) "
+            "and non_expert.helpers.J_upper_bound(...)."
+        )
+
     def remove_data(self, indices: list | np.ndarray):
         """
         Removes rows from the FAISS index, controls, and aligned values.

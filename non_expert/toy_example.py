@@ -21,7 +21,16 @@ import os
 from matplotlib import pyplot as plt
 import numpy as np
 
-from non_expert.helpers import J_upper_bound, solve_optimization_problem
+from non_expert.helpers import solve_optimization_problem
+
+
+def J_upper_bound(y: np.ndarray, x_d: np.ndarray, q: np.ndarray, lambd):
+    """Legacy toy helper: computes min_i q_i + lambda * ||x_i - y||."""
+    y = np.asarray(y, dtype=float).reshape(-1, 1)
+    x_d = np.asarray(x_d, dtype=float).reshape(-1, 1)
+    q = np.asarray(q, dtype=float).reshape(-1)
+    distances = np.linalg.norm(x_d[:, None, :] - y[None, :, :], axis=-1)
+    return np.min(q[:, None] + lambd * distances, axis=0)
 
 
 class ToySystem:

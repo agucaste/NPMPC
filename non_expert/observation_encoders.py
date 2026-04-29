@@ -72,8 +72,9 @@ def encode_trajectories(trajectories, encoder: ObservationEncoder):
 
 
 def env_id_to_encoder_key(env_id: str) -> str:
+    return env_id
     """Convert Gym ids like InvertedPendulum-v5 to InvertedPendulum."""
-    return re.sub(r"-v\d+$", "", env_id)
+    # return re.sub(r"-v\d+$", "", env_id)
 
 
 def sha256_file(path: Path) -> str:
@@ -111,6 +112,8 @@ def load_observation_encoder(config, env_id: str, obs_dim: int, project_root: Pa
     mode = getattr(encoder_cfg, "mode", "auto") if encoder_cfg is not None else "auto"
     path = getattr(encoder_cfg, "path", None) if encoder_cfg is not None else None
 
+    print(f"Loading observation encoder with mode={mode} from path={path} for env_id={env_id} and obs_dim={obs_dim}")
+
     if mode == "none":
         return IdentityEncoder(input_dim=obs_dim)
 
@@ -123,7 +126,9 @@ def load_observation_encoder(config, env_id: str, obs_dim: int, project_root: Pa
     elif mode == "auto":
         env_key = env_id_to_encoder_key(env_id)
         encoder_path = default_encoder_path(project_root, env_key)
+        print(f"Auto encoder path for env_id {env_id} (key {env_key}): {encoder_path}")
         if not encoder_path.exists():
+            print(f"No encoder found at {encoder_path}, using identity encoder instead.")
             return IdentityEncoder(input_dim=obs_dim)
     else:
         raise ValueError(f"Unknown encoder mode: {mode}")
