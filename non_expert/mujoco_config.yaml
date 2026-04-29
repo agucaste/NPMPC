@@ -51,7 +51,7 @@ InvertedPendulum-v5:
   max_iter: 5_000
   encoder:
     mode: path
-    path: "non_expert/minari/outputs/InvertedPendulum-v5-4components/pca_encoder.pkl"
+    path: "non_expert/minari/outputs/InvertedPendulum-v5/pca_encoder.pkl"
 
 Pendulum-v1:
   env_id: "Pendulum-v1"
