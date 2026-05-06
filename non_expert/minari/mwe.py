@@ -13,12 +13,6 @@ import pickle
 from dataclasses import dataclass
 from pathlib import Path
 
-# Keep matplotlib/fontconfig from trying to write caches under the home
-# directory, which is not writable in some project/sandbox setups.
-os.environ["MPLCONFIGDIR"] = "/tmp/matplotlib"
-os.environ["XDG_CACHE_HOME"] = "/tmp"
-Path(os.environ["MPLCONFIGDIR"]).mkdir(parents=True, exist_ok=True)
-
 import minari
 import numpy as np
 
@@ -38,8 +32,12 @@ DATASET = {
         "mujoco/halfcheetah/medium-v0",
         "mujoco/halfcheetah/expert-v0",
     ),
+    "Swimmer": (
+        "mujoco/swimmer/medium-v0",
+        "mujoco/swimmer/expert-v0",
+    ),
 }
-ENV = "InvertedPendulum"
+ENV = "Swimmer"
 
 
 @dataclass
@@ -321,8 +319,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.env == "InvertedPendulum" or args.env == "HalfCheetah":
+    if args.env in ["InvertedPendulum", "HalfCheetah", "Swimmer"]:
         env = f"{args.env}-v5"
+    else:
+        raise ValueError(f"Unsupported env {args.env}")
 
     output_dir = args.output_dir / env
     output_dir.mkdir(parents=True, exist_ok=True)

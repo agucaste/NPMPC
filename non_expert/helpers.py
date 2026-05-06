@@ -4,6 +4,7 @@ import os
 import random
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
+import faiss as fa
 import numpy as np
 
 if TYPE_CHECKING:
@@ -129,7 +130,7 @@ def _distance_batch_size() -> int:
     return max(1, int(os.environ.get("MINT_DISTANCE_BATCH_SIZE", "1024")))
 
 
-def _min_lipschitz_values(
+def _J_ub(
     x_d: np.ndarray,
     y: np.ndarray,
     q: np.ndarray,
@@ -182,7 +183,7 @@ def find_fixed_point_v2(
 
     Q = np.zeros(x.shape[0]) if warm_Q is None else np.concatenate([warm_Q, np.zeros(len(D) - len(warm_Q))])
     for it in range(max_iter):
-        Q_next = c + gamma * _min_lipschitz_values(x, x_next, Q, lambd, batch_size=batch_size)
+        Q_next = c + gamma * _J_ub(x, x_next, Q, lambd, batch_size=batch_size)
 
         if np.max(np.abs(Q_next - Q)) < tol:
             print(f"Value Iteration Converged after {it} steps.")
@@ -251,7 +252,83 @@ def find_fixed_point_v3(
     for it in range(max_iter):
         bootstraps = np.vstack(
             [
-                _min_lipschitz_values(x, x_nexts[k], Q, lambd, batch_size=batch_size)
+                _J_ub(x, x_nexts[k], Q, lambd, batch_size=batch_size)
+                for k in range(K)
+            ]
+        )
+        k_step_values = discounted_costs + gamma_powers[:, None] * bootstraps
+        bootstrap_steps = np.argmin(k_step_values, axis=0) + 1
+        all_bootstrap_steps.append(bootstrap_steps)
+        Q_next = np.min(k_step_values, axis=0)
+
+        if np.max(np.abs(Q_next - Q)) < tol:
+            avg_bootstrap, median_bootstrap = _bootstrap_step_stats(all_bootstrap_steps)
+            return Q_next, avg_bootstrap, median_bootstrap, it
+
+        Q = Q_next
+
+    avg_bootstrap, median_bootstrap = _bootstrap_step_stats(all_bootstrap_steps)
+    return Q, avg_bootstrap, median_bootstrap, max_iter
+
+
+def find_fixed_point_v4(
+    D: List[Tuple],
+    lambd: float,
+    gamma: float,
+    tol: float = 1e-3,
+    max_iter: int = 1000,
+    warm_Q: Optional[np.ndarray] = None,
+    K: int = 5,
+    neighbors: int = 50,
+):
+    r"""
+    KNN-cached approximation of `find_fixed_point_v3`.
+
+    Solves value iteration with k-step bootstrapping, but approximates each
+    upper-bound reduction using cached nearest neighbors in the metric space.
+    """
+    assert len(D) > 0 and lambd > 0 and 0 < gamma < 1, "Invalid inputs"
+    assert K >= 1, "K must be at least 1"
+    assert neighbors >= 1, "neighbors must be at least 1"
+    assert all(len(d) == 3 * K + 1 for d in D), "Each transition tuple must contain (xi, ui, ci, xi', ui', ci', ..., xi^{K})"
+
+    x = as_rows([d[0] for d in D])
+    x_nexts = [as_rows([d[3 + 3*k] for d in D]) for k in range(K)]
+    costs = [np.asarray([d[2 + 3*k] for d in D], dtype=float).reshape(-1) for k in range(K)]
+
+    assert all(x_next.shape == x.shape for x_next in x_nexts), "all x_next arrays must match x shape"
+    assert all(cost.shape[0] == x.shape[0] for cost in costs), "costs must match number of samples"
+
+    x_faiss = np.ascontiguousarray(x.astype(np.float32))
+    index = fa.IndexFlatL2(x_faiss.shape[1])
+    index.add(x_faiss)
+
+    k_neighbors = min(int(neighbors), x.shape[0])
+    neighbor_indices = []
+    neighbor_distances = []
+    for x_next in x_nexts:
+        x_next_faiss = np.ascontiguousarray(x_next.astype(np.float32))
+        D_sq, I = index.search(x_next_faiss, k_neighbors)
+        neighbor_indices.append(I)
+        neighbor_distances.append(np.sqrt(np.maximum(D_sq, 0.0)))
+
+    discounted_costs = np.zeros((K, x.shape[0]))
+    running_cost = np.zeros(x.shape[0])
+    for k in range(K):
+        running_cost = running_cost + (gamma ** k) * costs[k]
+        discounted_costs[k] = running_cost
+
+    if warm_Q is None:
+        Q = np.zeros(x.shape[0])
+    else:
+        Q = np.concatenate([warm_Q, np.zeros(len(D) - len(warm_Q))])
+
+    gamma_powers = gamma ** np.arange(1, K + 1)
+    all_bootstrap_steps = []
+    for it in range(max_iter):
+        bootstraps = np.vstack(
+            [
+                np.min(Q[neighbor_indices[k]] + lambd * neighbor_distances[k], axis=1)
                 for k in range(K)
             ]
         )

@@ -15,6 +15,7 @@ from non_expert.helpers import (
     Tee,
     find_fixed_point_v2,
     find_fixed_point_v3,
+    find_fixed_point_v4,
     seed_all,
 )
 from non_expert.logger import Logger
@@ -68,8 +69,7 @@ def make_dataset_from_trajectories(trajectories, system, do_bootstrap=False, max
     return D
 
 
-def prune_dataset(Z, U, C, Z_next, D, Q, distances, lambd):
-    J_ub = J_upper_bound(distances, Q, lambd)
+def prune_dataset(Z, U, C, Z_next, D, Q, J_ub, lambd):
     to_prune = np.where(Q > J_ub)[0]
     keep = np.ones(len(Z), dtype=bool)
     keep[to_prune] = False
@@ -302,7 +302,7 @@ if __name__ == "__main__":
 
     def solve_Q(D, warm_Q=None):
         if do_bootstrap:
-            return find_fixed_point_v3(
+            return find_fixed_point_v4(
                 D,
                 gamma=config.gamma,
                 lambd=config.lambd,
@@ -310,7 +310,7 @@ if __name__ == "__main__":
                 max_iter=config.q_iter,
                 warm_Q=warm_Q,
                 K=max_bootstrap,
-                batch_size=config.distance_batch_size,
+                neighbors=config.k,
             )
         Q = find_fixed_point_v2(
             D,
@@ -357,7 +357,8 @@ if __name__ == "__main__":
     initial_samples = len(D)
     Q, avg_bootstrap, median_bootstrap, fixed_point_steps = solve_Q(D)
     pi_mint.set_data(Z, U, Q)
-    distances = pi_mint.distances_to_dataset(Z, batch_size=config.distance_batch_size)
+    # distances = pi_mint.distances_to_dataset(Z, batch_size=config.distance_batch_size)
+    J_ub = pi_mint.J_upper_bound_knn(Z, batch_size=config.distance_batch_size)
     Z, U, C, Z_next, D, Q, pruned = prune_dataset(
         Z,
         U,
@@ -365,7 +366,7 @@ if __name__ == "__main__":
         Z_next,
         D,
         Q,
-        distances,
+        J_ub,
         config.lambd,
     )
 
@@ -430,10 +431,13 @@ if __name__ == "__main__":
         assert_feature_dim(Z_new, Z_next_new, feature_dim)
 
         update_start_time = time.time()
-        distances_new = pi_mint.distances_to_dataset(Z_new, batch_size=config.distance_batch_size)
-        distances_next_new = pi_mint.distances_to_dataset(Z_next_new, batch_size=config.distance_batch_size)
-        Q_new = J_upper_bound(distances_new, Q, config.lambd)
-        TQ_new = C_new + config.gamma * J_upper_bound(distances_next_new, Q, config.lambd)
+        # distances_new = pi_mint.distances_to_dataset(Z_new, batch_size=config.distance_batch_size)
+        # distances_next_new = pi_mint.distances_to_dataset(Z_next_new, batch_size=config.distance_batch_size)
+        Q_new = pi_mint.J_upper_bound_knn(Z_new, batch_size=config.distance_batch_size)
+        TQ_new = C_new + config.gamma * pi_mint.J_upper_bound_knn(
+            Z_next_new,
+            batch_size=config.distance_batch_size,
+        )
         improves = TQ_new < Q_new
         improving_points[t] = np.sum(improves)
 
@@ -456,7 +460,8 @@ if __name__ == "__main__":
             D.extend([d for d, improve in zip(D_new, improves) if improve])
             Q, avg_bootstrap, median_bootstrap, fixed_point_steps = solve_Q(D, warm_Q=Q)
             pi_mint.set_data(Z, U, Q)
-            distances = pi_mint.distances_to_dataset(Z, batch_size=config.distance_batch_size)
+            # distances = pi_mint.distances_to_dataset(Z, batch_size=config.distance_batch_size)
+            J_ub = pi_mint.J_upper_bound_knn(Z, batch_size=config.distance_batch_size)
             Z, U, C, Z_next, D, Q, pruned = prune_dataset(
                 Z,
                 U,
@@ -464,7 +469,7 @@ if __name__ == "__main__":
                 Z_next,
                 D,
                 Q,
-                distances,
+                J_ub,
                 config.lambd,
             )
 

@@ -1,7 +1,7 @@
 defaults:
   # MuJoCo environment
   env_id: 
-  # Discount factor
+  # Discount facto
   gamma: 0.999
   # Policy parameters
   # Lambda for the upper bound
@@ -27,7 +27,7 @@ defaults:
   # Tolerance for fixed points
   q_tol: 1.0e-3
   # Iterations for fixed p1int
-  q_iter: 1000
+  q_iter: 100
   # Whether to use optimistic K-step bootstrapping
   do_bootstrap: True
   # Maximum lookahead for K-step bootstrapping
@@ -46,9 +46,9 @@ defaults:
 
 InvertedPendulum-v5:
   env_id: "InvertedPendulum-v5"
-  lambd: 5
+  lambd: 10
   sigma: 3
-  max_iter: 5_000
+  max_iter: 1_000
   encoder:
     mode: path
     path: "non_expert/minari/outputs/InvertedPendulum-v5/pca_encoder.pkl"
@@ -70,5 +70,14 @@ BipedalWalker-v3:
   traj_per_iter: 1
   sigma: 3
   lambd: 10
+
+Swimmer-v5:
+  env_id: "Swimmer-v5"
+  max_iter: 1_000
+  M: 1000
+  traj_per_iter: 1
+  sigma: 3
+  lambd: 5
+  gamma: 0.9999  # See https://arxiv.org/pdf/2208.07587
 
   

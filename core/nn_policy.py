@@ -243,6 +243,33 @@ class MINTPolicy(NNRegressor):
 
         return np.sqrt(np.maximum(distances, 0.0))
 
+    def J_upper_bound_knn(
+        self,
+        Z_query: np.ndarray,
+        neighbors: int | None = None,
+        batch_size: int | None = None,
+    ) -> np.ndarray:
+        """Computes the MINT upper bound using only nearest-neighbor candidates."""
+        if self.size == 0:
+            raise ValueError("Cannot compute J upper bound with an empty policy dataset.")
+
+        k = self._k if neighbors is None else int(neighbors)
+        if k <= 0:
+            raise ValueError(f"neighbors must be positive or None, got {neighbors}")
+        k = min(k, self.size)
+
+        Z_query = np.ascontiguousarray(np.asarray(Z_query, dtype=np.float32).reshape(-1, self.nx))
+        batch_size = Z_query.shape[0] if batch_size is None else max(1, int(batch_size))
+        out = np.empty(Z_query.shape[0], dtype=float)
+
+        for start in range(0, Z_query.shape[0], batch_size):
+            stop = min(start + batch_size, Z_query.shape[0])
+            D, I = self.x.search(Z_query[start:stop], k)
+            D = np.sqrt(np.maximum(D, 0.0))
+            out[start:stop] = np.min(self.J[I] + self.lambd * D, axis=1)
+
+        return out
+
     def J_upper_bound(
         self,
         xq: np.ndarray,
