@@ -313,7 +313,22 @@ class MINTPolicy(NNRegressor):
             f"FAISS index has {self.x.ntotal} points, but J has {self.J.shape[0]}"
         )
         
-    def make_step(self, xq: np.ndarray, w: str = 'equal') -> np.ndarray:
+    def greedy_index(self, xq: np.ndarray) -> int:
+        """
+        Return the dataset row selected by the MINT upper-bound rule.
+        """
+        D, I = self.query(xq)
+        D, I = D.reshape(-1), I.reshape(-1)
+
+        if self._k == 1:
+            return int(I[0])
+
+        D = np.sqrt(np.maximum(D, 0.0))  # FAISS IndexFlatL2 returns squared L2 distances.
+        J_ub = self.J[I] + self.lambd * D  # Build upper bound
+        i = np.argmin(J_ub)  # Act greedily
+        return int(I[i])
+
+    def make_step(self, xq: np.ndarray, w: str = 'equal', greedy: bool = False) -> np.ndarray:
         """
         Decides an action based on the state. 
         The policy is greedy w.r.t. upper bound of cost-to-go:
@@ -321,22 +336,12 @@ class MINTPolicy(NNRegressor):
         Args:
             xq: query states, shape (N, n) or (n, ), N is number of queries, n is state dimension.
             w: weighting method, 'equal' or 'distance'.
+            greedy: whether to use greedy selection (only used by ChainPolicy)
         Returns:
             u: controls corresponding to the nearest neighbors, shape (N, m) or (m, ) if k=1.
         """ 
-        D, I = self.query(xq)       
-        D, I = D.reshape(-1), I.reshape(-1)    
-
-        # print(f"Query: {xq}, distances: {D}, indices: {I}")
-        if self._k == 1:
-            return self.u[I[0]].reshape(1, -1)
-        else:
-            # print(f"Indices of neighbors: {I}, shape: {I.shape},\ndistances: {D}, shape: {D.shape}")
-            # print(f"J has length {len(self.J)}")
-            D = np.sqrt(np.maximum(D, 0.0))  # FAISS IndexFlatL2 returns squared L2 distances.
-            J_ub = self.J[I] + self.lambd * D  # Build upper bound
-            i = np.argmin(J_ub)  # Act greedily
-            return self.u[I[i]].reshape(1, -1)
+        i = self.greedy_index(xq)
+        return self.u[i].reshape(1, -1)
     
     @property
     def name(self) -> str:
@@ -350,13 +355,115 @@ class EncodedMINTPolicy(MINTPolicy):
         self.encoder = encoder
         super().__init__(nx=nx, nu=nu, k=k, lambd=lambd)
 
-    def make_step(self, xq: np.ndarray, w: str = 'equal') -> np.ndarray:
+    def make_step(self, xq: np.ndarray, w: str = 'equal', greedy: bool = False) -> np.ndarray:
         zq = self.encoder.encode(xq)
         return super().make_step(zq, w=w)
 
     @property
     def name(self) -> str:
         return f'Encoded{super().name}_{self.encoder.name}'
+
+
+class ChainPolicy(EncodedMINTPolicy):
+    """Encoded MINT policy that executes precomputed greedy action chains."""
+
+    def __init__(self, encoder, nx: int, nu: int, k: int = 1, lambd: float = 1.0):
+        """Initialize the encoded chain policy and its action queue."""
+        self.action_chains = []
+        self._pending_actions = np.empty((0, nu), dtype=float)
+        self._pending_action_idx = 0
+        super().__init__(encoder=encoder, nx=nx, nu=nu, k=k, lambd=lambd)
+
+    def add_data(
+        self,
+        x: list | np.ndarray,
+        u: list | np.ndarray,
+        J: list | np.ndarray,
+        action_chains: list[np.ndarray],
+    ):
+        """Add MINT data with aligned, pre-trimmed action chains."""
+        old_size = self.size
+        super().add_data(x, u, J)
+
+        added = self.size - old_size
+        chains = self._format_action_chains(action_chains)
+        assert len(chains) == added, f"Expected {added} action chains, got {len(chains)}"
+
+        self.action_chains.extend(chains)
+        self._check_chain_consistency()
+
+    def set_data(
+        self,
+        x: list | np.ndarray,
+        u: list | np.ndarray,
+        J: list | np.ndarray,
+        action_chains: list[np.ndarray],
+    ):
+        """Replace the policy dataset and aligned action chains."""
+        self.x.reset()
+        self.u = np.empty((0, self.nu), dtype=float)
+        self.J = np.empty((0,), dtype=float)
+        self.action_chains = []
+        self.reset_chain()
+        self.add_data(x, u, J, action_chains)
+
+    def remove_data(self, indices: list | np.ndarray):
+        """Remove rows from MINT data and aligned action chains."""
+        indices = np.asarray(indices, dtype=np.int64).reshape(-1)
+        if indices.size == 0:
+            return
+
+        indices = np.ascontiguousarray(np.unique(indices))
+        super().remove_data(indices)
+        remove_set = set(indices.tolist())
+        self.action_chains = [
+            chain for i, chain in enumerate(self.action_chains)
+            if i not in remove_set
+        ]
+        self.reset_chain()
+        self._check_chain_consistency()
+
+    def reset_chain(self):
+        """Clear queued open-loop actions."""
+        self._pending_actions = np.empty((0, self.nu), dtype=float)
+        self._pending_action_idx = 0
+
+    def make_step(self, xq: np.ndarray, w: str = 'equal', greedy: bool = False) -> np.ndarray:
+        """Return the next queued action or start a new greedy action chain."""
+        if greedy:
+            return super().make_step(xq, w=w)
+
+        if self._pending_action_idx >= len(self._pending_actions):
+            zq = self.encoder.encode(xq)
+            i = self.greedy_index(zq)
+            self._pending_actions = self.action_chains[i]
+            self._pending_action_idx = 0
+    
+        u = self._pending_actions[self._pending_action_idx]
+        self._pending_action_idx += 1
+        return u.reshape(1, -1)
+
+    def _format_action_chains(self, action_chains: list[np.ndarray]) -> list[np.ndarray]:
+        """Convert action chains to validated row arrays."""
+        chains = []
+        for chain in action_chains:
+            chain = np.asarray(chain, dtype=float).reshape(-1, self.nu)
+            assert chain.shape[0] >= 1, "Action chains must contain at least one action."
+            chains.append(chain)
+        return chains
+
+    def _check_chain_consistency(self):
+        """Check that action chains stay aligned with MINT rows."""
+        assert len(self.action_chains) == self.size, (
+            f"FAISS index has {self.size} points, but action_chains has {len(self.action_chains)}"
+        )
+        assert all(chain.shape[1] == self.nu for chain in self.action_chains), (
+            f"Each action chain must have action dim {self.nu}"
+        )
+
+    @property
+    def name(self) -> str:
+        return f'Chain{super().name}'
 
         
 

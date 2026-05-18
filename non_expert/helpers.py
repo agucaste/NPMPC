@@ -4,6 +4,8 @@ import os
 import random
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
+from matplotlib import pyplot as plt
+
 import faiss as fa
 import numpy as np
 
@@ -46,6 +48,35 @@ def get_cost_to_go(policy: NNRegressor | MINTPolicy, env, x0: np.ndarray, gamma:
         x = env.f(x, u)
         J += c * (gamma ** t)
     return J.item()
+
+
+def plot_Q_values(policy: MINTPolicy, results_path: str, iteration: int) -> str:
+    """Plot a histogram of policy Q values across the dataset."""
+
+    n = policy.size
+    if n == 0:
+        raise ValueError("Cannot plot Q values for an empty dataset.")
+
+    q_values = -np.asarray(policy.J, dtype=float).reshape(-1)
+    if q_values.shape[0] != n:
+        raise ValueError(f"Policy has {q_values.shape[0]} Q values, but D has {n} rows.")
+
+    q_values_path = os.path.join(results_path, "Q_values")
+    os.makedirs(q_values_path, exist_ok=True)
+    output_path = os.path.join(q_values_path, f"Q_values_{iteration:06d}.pdf")
+
+    bins = int(np.ceil(np.sqrt(n)))
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.hist(q_values, bins=bins, edgecolor="black", alpha=0.75)
+    ax.set_title(rf"$Q_i$ values at iteration {iteration}")
+    ax.set_xlabel(r"$Q_i$")
+    ax.set_ylabel("Count")
+    
+    fig.tight_layout()
+    fig.savefig(output_path, format="pdf")
+    plt.close(fig)
+
+    return output_path
 
 
 def J_upper_bound(distances: np.ndarray, q: np.ndarray, lambd):
@@ -221,9 +252,9 @@ def find_fixed_point_v3(
         K (int, optional): number of steps for bootstrapping. Defaults to 5.
 
     Returns:
-        Tuple[np.ndarray, float, float, int]: Q values, average selected bootstrap
-        step, median selected bootstrap step across all value-iteration updates,
-        and the number of value-iteration updates run.
+        Tuple[np.ndarray, np.ndarray, dict[str, float], int]: Q values, final
+        selected bootstrap steps, bootstrap summary stats, and the number of
+        value-iteration updates run.
     """
     assert len(D) > 0 and lambd > 0 and 0 < gamma < 1, "Invalid inputs"
     assert K >= 1, "K must be at least 1"
@@ -262,13 +293,13 @@ def find_fixed_point_v3(
         Q_next = np.min(k_step_values, axis=0)
 
         if np.max(np.abs(Q_next - Q)) < tol:
-            avg_bootstrap, median_bootstrap = _bootstrap_step_stats(all_bootstrap_steps)
-            return Q_next, avg_bootstrap, median_bootstrap, it
+            bootstrap_stats = _bootstrap_step_stats(all_bootstrap_steps)
+            return Q_next, bootstrap_steps, bootstrap_stats, it + 1
 
         Q = Q_next
 
-    avg_bootstrap, median_bootstrap = _bootstrap_step_stats(all_bootstrap_steps)
-    return Q, avg_bootstrap, median_bootstrap, max_iter
+    bootstrap_stats = _bootstrap_step_stats(all_bootstrap_steps)
+    return Q, bootstrap_steps, bootstrap_stats, max_iter
 
 
 def find_fixed_point_v4(
@@ -338,21 +369,25 @@ def find_fixed_point_v4(
         Q_next = np.min(k_step_values, axis=0)
 
         if np.max(np.abs(Q_next - Q)) < tol:
-            avg_bootstrap, median_bootstrap = _bootstrap_step_stats(all_bootstrap_steps)
-            return Q_next, avg_bootstrap, median_bootstrap, it
+            bootstrap_stats = _bootstrap_step_stats(all_bootstrap_steps)
+            return Q_next, bootstrap_steps, bootstrap_stats, it + 1
 
         Q = Q_next
 
-    avg_bootstrap, median_bootstrap = _bootstrap_step_stats(all_bootstrap_steps)
-    return Q, avg_bootstrap, median_bootstrap, max_iter
+    bootstrap_stats = _bootstrap_step_stats(all_bootstrap_steps)
+    return Q, bootstrap_steps, bootstrap_stats, max_iter
 
 
-def _bootstrap_step_stats(all_bootstrap_steps: List[np.ndarray]) -> Tuple[float, float]:
+def _bootstrap_step_stats(all_bootstrap_steps: List[np.ndarray]) -> dict[str, float]:
+    """Summarize selected bootstrap steps across value-iteration updates."""
     if not all_bootstrap_steps:
-        return 1.0, 1.0
+        return {"average": 1.0, "median": 1.0}
 
     bootstrap_steps = np.concatenate(all_bootstrap_steps)
-    return float(np.mean(bootstrap_steps)), float(np.median(bootstrap_steps))
+    return {
+        "average": float(np.mean(bootstrap_steps)),
+        "median": float(np.median(bootstrap_steps)),
+    }
 
 
 

@@ -9,13 +9,14 @@ import gymnasium as gym
 import numpy as np
 
 from core.config import Config, load_yaml
-from core.nn_policy import EncodedMINTPolicy, configure_faiss_threads
+from core.nn_policy import ChainPolicy, EncodedMINTPolicy, configure_faiss_threads
 from non_expert.helpers import (
     J_upper_bound,
     Tee,
     find_fixed_point_v2,
     find_fixed_point_v3,
     find_fixed_point_v4,
+    plot_Q_values,
     seed_all,
 )
 from non_expert.logger import Logger
@@ -70,6 +71,7 @@ def make_dataset_from_trajectories(trajectories, system, do_bootstrap=False, max
 
 
 def prune_dataset(Z, U, C, Z_next, D, Q, J_ub, lambd):
+    """Prune rows whose stored value is above the current upper bound."""
     to_prune = np.where(Q > J_ub)[0]
     keep = np.ones(len(Z), dtype=bool)
     keep[to_prune] = False
@@ -81,7 +83,26 @@ def prune_dataset(Z, U, C, Z_next, D, Q, J_ub, lambd):
         [d for d, should_keep in zip(D, keep) if should_keep],
         np.delete(Q, to_prune, axis=0),
         len(to_prune),
+        keep,
     )
+
+
+def make_action_chains(D, last_bootstraps, nu):
+    """Build pre-trimmed action chains from bootstrapped dataset rows."""
+    last_bootstraps = np.asarray(last_bootstraps, dtype=int).reshape(-1)
+    assert len(D) == last_bootstraps.shape[0], "D and last_bootstraps must have the same length"
+
+    action_chains = []
+    for d, bootstrap in zip(D, last_bootstraps):
+        assert bootstrap >= 1, "Bootstrap horizons must be at least one."
+        assert bootstrap <= (len(d) - 1) // 3, "Bootstrap horizon exceeds stored actions."
+        actions = [
+            np.asarray(d[1 + 3 * step], dtype=float).reshape(nu)
+            for step in range(bootstrap)
+        ]
+        action_chains.append(np.asarray(actions, dtype=float).reshape(-1, nu))
+
+    return action_chains
 
 
 def empirical_lipschitz_constant(Z, Q, batch_size):
@@ -146,6 +167,8 @@ def collect_trajectories(system, policy=None, sigma=0.0, seed=None, max_steps=No
     for traj_idx in range(num_trajectories):
         traj_seed = None if seed is None else seed + traj_idx
         obs = system.reset(seed=traj_seed)
+        if hasattr(policy, "reset_chain"):
+            policy.reset_chain()
         obs_list, U, C, obs_next_list = [], [], [], []
         steps = 0
 
@@ -183,11 +206,13 @@ def evaluate_policy(system, policy, config, seed_offset=11_426):
     returns = []
     for i in range(config.eval_samples):
         obs = system.reset(seed=seed_offset + i)
+        if hasattr(policy, "reset_chain"):
+            policy.reset_chain()
         G = 0.0
         discount = 1.0
 
         while True:
-            u = policy.make_step(obs.reshape(1, -1)).reshape(-1)
+            u = policy.make_step(obs.reshape(1, -1), greedy=True).reshape(-1)
             cost, obs, done = system.transition(u)
             G += discount * (-cost)
             # discount *= config.gamma
@@ -222,6 +247,7 @@ if __name__ == "__main__":
     parser.add_argument("--sigma", type=float)
     parser.add_argument("--env-id", type=str)
     parser.add_argument("--faiss-threads", type=int)
+    parser.add_argument("--policy-type", choices=["mint", "chain"])
     args = parser.parse_args()
 
 
@@ -271,7 +297,7 @@ if __name__ == "__main__":
         "Train/Iteration",
         "Data/NewSamples",
         "Data/ImprovingPoints",
-        "Data/CollectedPoints",
+        "Data/TDGap",
         "Data/DatasetSize",
         "Data/PrunedPoints",
         "Data/LipschitzEmpirical",
@@ -283,7 +309,7 @@ if __name__ == "__main__":
         "Time/Update",
         "Time/Evaluate",
     ]:
-        if key in {"Bootstrap/Average", "Bootstrap/Median", "Eval/MedianReturn"}:
+        if key in {"Data/TDGap", "Bootstrap/Average", "Bootstrap/Median", "Eval/MedianReturn"}:
             logger.register_key(key, display_format=".1f")
         else:
             logger.register_key(key)
@@ -298,9 +324,11 @@ if __name__ == "__main__":
     feature_dim = int(encoder.output_dim)
     do_bootstrap = config.do_bootstrap
     max_bootstrap = config.max_bootstrap
-    pi_mint = EncodedMINTPolicy(encoder=encoder, nx=feature_dim, nu=system.nu, k=config.k, lambd=config.lambd)
+    policy_cls = ChainPolicy if config.policy_type == "chain" else EncodedMINTPolicy
+    pi_mint = policy_cls(encoder=encoder, nx=feature_dim, nu=system.nu, k=config.k, lambd=config.lambd)
 
     def solve_Q(D, warm_Q=None):
+        """Solve for Q values and normalize bootstrap metadata."""
         if do_bootstrap:
             return find_fixed_point_v4(
                 D,
@@ -321,7 +349,17 @@ if __name__ == "__main__":
             warm_Q=warm_Q,
             batch_size=config.distance_batch_size,
         )
-        return Q, 1.0, 1.0, None
+        last_bootstraps = np.ones(len(D), dtype=int)
+        bootstrap_stats = {"average": 1.0, "median": 1.0}
+        return Q, last_bootstraps, bootstrap_stats, None
+
+    def set_policy_data(policy, Z, U, Q, D, last_bootstraps):
+        """Set policy data with action chains when using ChainPolicy."""
+        if isinstance(policy, ChainPolicy):
+            action_chains = make_action_chains(D, last_bootstraps, system.nu)
+            policy.set_data(Z, U, Q, action_chains)
+        else:
+            policy.set_data(Z, U, Q)
 
     logger.log(f"Environment: {config.env_id}")
     logger.log(f"Seed: {config.seed}")
@@ -333,6 +371,7 @@ if __name__ == "__main__":
         f"path: {encoder_metadata.get('path', '<identity>')}",
     )
     logger.log("MINT metric space: encoded observations")
+    logger.log(f"Policy type: {config.policy_type}")
 
     experiment_start_time = time.time()
 
@@ -355,11 +394,11 @@ if __name__ == "__main__":
         max_bootstrap=max_bootstrap,
     )
     initial_samples = len(D)
-    Q, avg_bootstrap, median_bootstrap, fixed_point_steps = solve_Q(D)
-    pi_mint.set_data(Z, U, Q)
+    Q, last_bootstraps, bootstrap_stats, fixed_point_steps = solve_Q(D)
+    set_policy_data(pi_mint, Z, U, Q, D, last_bootstraps)
     # distances = pi_mint.distances_to_dataset(Z, batch_size=config.distance_batch_size)
     J_ub = pi_mint.J_upper_bound_knn(Z, batch_size=config.distance_batch_size)
-    Z, U, C, Z_next, D, Q, pruned = prune_dataset(
+    Z, U, C, Z_next, D, Q, pruned, keep = prune_dataset(
         Z,
         U,
         C,
@@ -369,6 +408,7 @@ if __name__ == "__main__":
         J_ub,
         config.lambd,
     )
+    last_bootstraps = last_bootstraps[keep]
 
     median_returns = np.zeros(config.max_iter + 1)
     dataset_sizes = np.zeros(config.max_iter + 1)
@@ -377,7 +417,10 @@ if __name__ == "__main__":
     avg_bootstrap_steps = np.ones(config.max_iter + 1)
     median_bootstrap_steps = np.ones(config.max_iter + 1)
 
-    pi_mint.set_data(Z, U, Q)
+    set_policy_data(pi_mint, Z, U, Q, D, last_bootstraps)
+
+    plot_Q_values(pi_mint,results_path, 0)
+
     assert pi_mint.nx == feature_dim, f"Expected MINT feature dim {feature_dim}, got {pi_mint.nx}"
     update_time = time.time() - update_start_time
 
@@ -387,8 +430,8 @@ if __name__ == "__main__":
     median_returns[0] = np.median(eval_returns)
     dataset_sizes[0] = len(Z)
     pruned_points[0] = pruned
-    avg_bootstrap_steps[0] = avg_bootstrap
-    median_bootstrap_steps[0] = median_bootstrap
+    avg_bootstrap_steps[0] = bootstrap_stats["average"]
+    median_bootstrap_steps[0] = bootstrap_stats["median"]
     lipschitz_empirical = logged_lipschitz_constant(
         0,
         Z,
@@ -402,13 +445,13 @@ if __name__ == "__main__":
             "Train/Iteration": 0,
             "Data/NewSamples": initial_samples,
             "Data/ImprovingPoints": np.nan,
-            "Data/CollectedPoints": np.nan,
+            "Data/TDGap": np.nan,
             "Data/DatasetSize": len(Z),
             "Data/PrunedPoints": pruned,
             "Data/LipschitzEmpirical": lipschitz_empirical,
             "FixedPoint/Steps": np.nan if fixed_point_steps is None else fixed_point_steps,
-            "Bootstrap/Average": avg_bootstrap,
-            "Bootstrap/Median": median_bootstrap,
+            "Bootstrap/Average": bootstrap_stats["average"],
+            "Bootstrap/Median": bootstrap_stats["median"],
             "Eval/MedianReturn": median_returns[0],
             "Time/Total": time.time() - experiment_start_time,
             "Time/Update": update_time,
@@ -417,11 +460,14 @@ if __name__ == "__main__":
     )
     logger.dump_tabular()
 
+    # Initialize sigma here (and anneal it if provided)
+    sigma = config.sigma
+
     for t in range(1, config.max_iter + 1):
         raw_new_trajectories = collect_trajectories(
             system,
             policy=pi_mint,
-            sigma=config.sigma,
+            sigma=sigma,
             seed=config.seed + t * config.traj_per_iter,
             num_trajectories=config.traj_per_iter,
             max_steps=config.M,
@@ -438,13 +484,29 @@ if __name__ == "__main__":
             Z_next_new,
             batch_size=config.distance_batch_size,
         )
-        improves = TQ_new < Q_new
+        improves = TQ_new + config.td_slack < Q_new
         improving_points[t] = np.sum(improves)
+
+        gaps = Q_new - TQ_new
+        gaps_improving = gaps[improves]
+        td_gap_improving = gaps_improving.mean() if gaps_improving.size > 0 else 0
+        if gaps_improving.size > 0:
+            print(
+                "Gaps over improving points: "
+                f"min {gaps_improving.min():.1f}, "
+                f"median {np.median(gaps_improving):.1f}, "
+                f"mean {td_gap_improving:.1f}, "
+                f"max {gaps_improving.max():.1f}",
+            )
+        else:
+            print("Gaps over improving points: n/a")
 
         pruned = 0
         fixed_point_steps = None
-        avg_bootstrap = avg_bootstrap_steps[t - 1]
-        median_bootstrap = median_bootstrap_steps[t - 1]
+        bootstrap_stats = {
+            "average": avg_bootstrap_steps[t - 1],
+            "median": median_bootstrap_steps[t - 1],
+        }
         if np.any(improves):
             D_new = make_dataset_from_trajectories(
                 encoded_new_trajectories,
@@ -458,11 +520,11 @@ if __name__ == "__main__":
             C = np.concatenate([C, C_new[improves]], axis=0)
             Z_next = np.concatenate([Z_next, Z_next_new[improves]], axis=0)
             D.extend([d for d, improve in zip(D_new, improves) if improve])
-            Q, avg_bootstrap, median_bootstrap, fixed_point_steps = solve_Q(D, warm_Q=Q)
-            pi_mint.set_data(Z, U, Q)
+            Q, last_bootstraps, bootstrap_stats, fixed_point_steps = solve_Q(D, warm_Q=Q)
+            set_policy_data(pi_mint, Z, U, Q, D, last_bootstraps)
             # distances = pi_mint.distances_to_dataset(Z, batch_size=config.distance_batch_size)
             J_ub = pi_mint.J_upper_bound_knn(Z, batch_size=config.distance_batch_size)
-            Z, U, C, Z_next, D, Q, pruned = prune_dataset(
+            Z, U, C, Z_next, D, Q, pruned, keep = prune_dataset(
                 Z,
                 U,
                 C,
@@ -472,8 +534,12 @@ if __name__ == "__main__":
                 J_ub,
                 config.lambd,
             )
+            last_bootstraps = last_bootstraps[keep]
 
-            pi_mint.set_data(Z, U, Q)
+            set_policy_data(pi_mint, Z, U, Q, D, last_bootstraps)
+
+        if t % 50 == 0:
+            plot_Q_values(pi_mint,results_path, t)
 
         update_time = time.time() - update_start_time
 
@@ -483,8 +549,8 @@ if __name__ == "__main__":
         median_returns[t] = np.median(eval_returns)
         dataset_sizes[t] = len(Z)
         pruned_points[t] = pruned
-        avg_bootstrap_steps[t] = avg_bootstrap
-        median_bootstrap_steps[t] = median_bootstrap
+        avg_bootstrap_steps[t] = bootstrap_stats["average"]
+        median_bootstrap_steps[t] = bootstrap_stats["median"]
         lipschitz_empirical = logged_lipschitz_constant(
             t,
             Z,
@@ -498,13 +564,13 @@ if __name__ == "__main__":
                 "Train/Iteration": t,
                 "Data/NewSamples": len(Z_new),
                 "Data/ImprovingPoints": int(improving_points[t]),
-                "Data/CollectedPoints": len(TQ_new),
+                "Data/TDGap": td_gap_improving,
                 "Data/DatasetSize": len(Z),
                 "Data/PrunedPoints": pruned,
                 "Data/LipschitzEmpirical": lipschitz_empirical,
                 "FixedPoint/Steps": np.nan if fixed_point_steps is None else fixed_point_steps,
-                "Bootstrap/Average": avg_bootstrap,
-                "Bootstrap/Median": median_bootstrap,
+                "Bootstrap/Average": bootstrap_stats["average"],
+                "Bootstrap/Median": bootstrap_stats["median"],
                 "Eval/MedianReturn": median_returns[t],
                 "Time/Total": time.time() - experiment_start_time,
                 "Time/Update": update_time,
@@ -512,6 +578,9 @@ if __name__ == "__main__":
             },
         )
         logger.dump_tabular()
+
+        if config.anneal_sigma:
+            sigma = sigma * (config.max_iter - t) / (1 + config.max_iter - t)  # Sigma_{t+1} = f(Sigma_t, t)
 
     episodes = np.arange(config.max_iter + 1)
     fig, axs = plt.subplots(1, 4, figsize=(24, 5))
