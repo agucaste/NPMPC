@@ -4,9 +4,9 @@ import subprocess
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-LAMBDAS = [5, 10, 20]
-SIGMAS = [0.5, 2.0, 3.0]
-MAX_WORKERS = 3
+LAMBDAS = [1, 5, 10, 20]
+SIGMAS = [1, 2.0, 3.0]
+MAX_WORKERS = 8
 
 
 def run_one(params):

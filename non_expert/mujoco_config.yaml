@@ -34,7 +34,7 @@ defaults:
   q_iter: 100
   # Whether to use optimistic K-step bootstrapping
   do_bootstrap: True
-  # Maximum lookahead for K-step bootstrapping
+  # Maximum lookahead for K-step bootstrapping and for action chains (if using ChainPolicy).
   max_bootstrap: 3
   # Conservative slack for improving points. TQ + slack < Q .
   td_slack: 0.0
@@ -53,8 +53,8 @@ defaults:
 InvertedPendulum-v5:
   env_id: "InvertedPendulum-v5"
   lambd: 10
-  sigma: .5 # 3
-  policy: chain
+  sigma: 2
+  policy_type: chain
   max_iter: 1_000
   encoder:
     mode: path

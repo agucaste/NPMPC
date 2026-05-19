@@ -328,7 +328,7 @@ class MINTPolicy(NNRegressor):
         i = np.argmin(J_ub)  # Act greedily
         return int(I[i])
 
-    def make_step(self, xq: np.ndarray, w: str = 'equal', greedy: bool = False) -> np.ndarray:
+    def make_step(self, xq: np.ndarray, w: str = 'equal', one_action: bool = False) -> np.ndarray:
         """
         Decides an action based on the state. 
         The policy is greedy w.r.t. upper bound of cost-to-go:
@@ -355,9 +355,9 @@ class EncodedMINTPolicy(MINTPolicy):
         self.encoder = encoder
         super().__init__(nx=nx, nu=nu, k=k, lambd=lambd)
 
-    def make_step(self, xq: np.ndarray, w: str = 'equal', greedy: bool = False) -> np.ndarray:
+    def make_step(self, xq: np.ndarray, w: str = 'equal', one_action: bool = False) -> np.ndarray:
         zq = self.encoder.encode(xq)
-        return super().make_step(zq, w=w)
+        return super().make_step(zq, w=w, one_action=one_action)
 
     @property
     def name(self) -> str:
@@ -428,9 +428,9 @@ class ChainPolicy(EncodedMINTPolicy):
         self._pending_actions = np.empty((0, self.nu), dtype=float)
         self._pending_action_idx = 0
 
-    def make_step(self, xq: np.ndarray, w: str = 'equal', greedy: bool = False) -> np.ndarray:
+    def make_step(self, xq: np.ndarray, w: str = 'equal', one_action: bool = False) -> np.ndarray:
         """Return the next queued action or start a new greedy action chain."""
-        if greedy:
+        if one_action:
             return super().make_step(xq, w=w)
 
         if self._pending_action_idx >= len(self._pending_actions):

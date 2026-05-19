@@ -212,7 +212,8 @@ def evaluate_policy(system, policy, config, seed_offset=11_426):
         discount = 1.0
 
         while True:
-            u = policy.make_step(obs.reshape(1, -1), greedy=True).reshape(-1)
+            # Use either the open-loop chains (ChainPolicy), or closed-loop one step (MINT). Passed through one_action
+            u = policy.make_step(obs.reshape(1, -1), one_action=False).reshape(-1)
             cost, obs, done = system.transition(u)
             G += discount * (-cost)
             # discount *= config.gamma
