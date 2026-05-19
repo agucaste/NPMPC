@@ -22,6 +22,7 @@ from non_expert.helpers import (
 from non_expert.logger import Logger
 from non_expert.mujoco_system import GymSystem, MujocoSystem
 from non_expert.observation_encoders import encode_trajectories, load_observation_encoder
+from non_expert.envs_in_parallel import make_vine_envs, reset_vine_envs_same_state
 
 EVAL_SEED_OFFSET = 1_14_26
 
@@ -202,6 +203,77 @@ def collect_trajectories(system, policy=None, sigma=0.0, seed=None, max_steps=No
     return trajectories
 
 
+def collect_trajectories_vine(
+    vine_envs,
+    policy,
+    encoder,
+    config,
+    sigma=0.0,
+    seed=None,
+    max_steps=None,
+    num_trajectories: int = 1,
+):
+    """Collect trajectories by branching noisy actions in synchronized MuJoCo envs."""
+    if policy is None:
+        raise ValueError("collect_trajectories_vine requires a fitted policy.")
+    if config.policy_type == "chain":
+        raise NotImplementedError("Vine collection is not yet implemented for ChainPolicy.")
+
+    trajectories = []
+    action_low = vine_envs.single_action_space.low
+    action_high = vine_envs.single_action_space.high
+    action_dim = action_low.shape[0]
+    rng = np.random.default_rng(seed)
+
+    for traj_idx in range(num_trajectories):
+        traj_seed = None if seed is None else seed + traj_idx
+        obs_all, _ = reset_vine_envs_same_state(vine_envs, seed=traj_seed)
+        obs = obs_all[0]
+        if hasattr(policy, "reset_chain"):
+            policy.reset_chain()
+
+        obs_list, U, C, obs_next_list = [], [], [], []
+        steps = 0
+
+        while True:
+            u_base = policy.make_step(obs.reshape(1, -1)).reshape(-1)
+            noise = rng.normal(scale=sigma, size=(vine_envs.num_envs, action_dim))
+            actions = np.clip(u_base[None, :] + noise, action_low, action_high)
+
+            obs_next_all, rewards, terminated, truncated, _ = vine_envs.step(actions)
+            costs = -np.asarray(rewards, dtype=float)
+            z_next_all = encoder.encode(obs_next_all)
+            TQ = costs + config.gamma * policy.J_upper_bound_knn(
+                z_next_all,
+                batch_size=config.distance_batch_size,
+            )
+
+            best_idx = int(np.argmin(TQ))
+            done_all = np.logical_or(terminated, truncated)
+
+            obs_list.append(obs)
+            U.append(actions[best_idx])
+            C.append(costs[best_idx])
+            obs_next_list.append(obs_next_all[best_idx])
+
+            steps += 1
+            if done_all[best_idx] or (max_steps is not None and steps >= max_steps):
+                break
+
+            states = vine_envs.call("get_mujoco_state")
+            obs_all = np.stack(vine_envs.call("set_mujoco_state", states[best_idx]))
+            obs = obs_all[0]
+
+        trajectories.append((
+            np.asarray(obs_list, dtype=float),
+            np.asarray(U, dtype=float),
+            np.asarray(C, dtype=float),
+            np.asarray(obs_next_list, dtype=float),
+        ))
+
+    return trajectories
+
+
 def evaluate_policy(system, policy, config, seed_offset=11_426):
     returns = []
     for i in range(config.eval_samples):
@@ -246,14 +318,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--lambd", type=float)
     parser.add_argument("--sigma", type=float)
-    parser.add_argument("--env-id", type=str)
+    parser.add_argument("--env-id", type=str, default='Swimmer-v5')
     parser.add_argument("--faiss-threads", type=int)
     parser.add_argument("--policy-type", choices=["mint", "chain"])
+    parser.add_argument("--num-envs", type=int)
+    parser.add_argument("--use-vine-collection", action=argparse.BooleanOptionalAction, default=None)
     args = parser.parse_args()
 
 
     # Name of the environment to be tested.
-    env_id = args.env_id or "InvertedPendulum-v5"
+    # env_id = args.env_id or "InvertedPendulum-v5"
+    env_id = args.env_id
 
     # Load configuration
     path = os.path.dirname(os.path.abspath(__file__))
@@ -319,6 +394,12 @@ if __name__ == "__main__":
     env = gym.make(config.env_id)
     env.action_space.seed(config.seed)
     system = make_system(env)
+    vine_envs = None
+    if config.use_vine_collection:
+        if not isinstance(system, MujocoSystem):
+            raise ValueError("Vine collection requires a MuJoCo environment with settable state.")
+        vine_envs = make_vine_envs(config.env_id, config.num_envs, seed=config.seed)
+
     project_root = Path(path).parent
     encoder = load_observation_encoder(config, config.env_id, system.nx, project_root)
     encoder_metadata = getattr(encoder, "metadata", {})
@@ -373,6 +454,10 @@ if __name__ == "__main__":
     )
     logger.log("MINT metric space: encoded observations")
     logger.log(f"Policy type: {config.policy_type}")
+    logger.log(
+        f"Vine collection: {config.use_vine_collection}, "
+        f"num_envs: {config.num_envs if config.use_vine_collection else 0}",
+    )
 
     experiment_start_time = time.time()
 
@@ -465,14 +550,26 @@ if __name__ == "__main__":
     sigma = config.sigma
 
     for t in range(1, config.max_iter + 1):
-        raw_new_trajectories = collect_trajectories(
-            system,
-            policy=pi_mint,
-            sigma=sigma,
-            seed=config.seed + t * config.traj_per_iter,
-            num_trajectories=config.traj_per_iter,
-            max_steps=config.M,
-        )
+        if config.use_vine_collection:
+            raw_new_trajectories = collect_trajectories_vine(
+                vine_envs,
+                policy=pi_mint,
+                encoder=encoder,
+                config=config,
+                sigma=sigma,
+                seed=config.seed + t * config.traj_per_iter,
+                num_trajectories=config.traj_per_iter,
+                max_steps=config.M,
+            )
+        else:
+            raw_new_trajectories = collect_trajectories(
+                system,
+                policy=pi_mint,
+                sigma=sigma,
+                seed=config.seed + t * config.traj_per_iter,
+                num_trajectories=config.traj_per_iter,
+                max_steps=config.M,
+            )
         encoded_new_trajectories = encode_trajectories(raw_new_trajectories, encoder)
         Z_new, U_new, C_new, Z_next_new = flatten_trajectories(encoded_new_trajectories)
         assert_feature_dim(Z_new, Z_next_new, feature_dim)
@@ -638,6 +735,8 @@ if __name__ == "__main__":
         encoder_sha256=encoder_metadata.get("sha256", ""),
         encoder_feature_dim=feature_dim,
     )
+    if vine_envs is not None:
+        vine_envs.close()
     env.close()
     logger.close()
     sys.stdout = original_stdout

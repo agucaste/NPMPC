@@ -14,16 +14,18 @@ defaults:
   k: 1000
   # Policy execution mode: "mint" or "chain"
   policy_type: "mint"
+  # Whether to collect refinement trajectories using parallel vine rollouts.
+  use_vine_collection: True
+  # Number of parallel environments to branch at each vine step.
+  num_envs: 4
   # FAISS OpenMP threads per process. Keep low when running multiple jobs on a laptop.
   faiss_threads: 2
   # Query chunk size for dense distance reductions. Lower uses less RAM but runs slower.
   distance_batch_size: 2048
   # Compute empirical Lipschitz diagnostics every N iterations. Set <= 0 to disable.
   lipschitz_log_every: 50
-  # Number of initial samples
-  M0: 50
   # Number of refinement samples per iteration
-  M: 100
+  M: 1000
   # Number of iterations of the algorithm
   max_iter: 1_000
   # Trajectories run per iteration
@@ -54,7 +56,7 @@ InvertedPendulum-v5:
   env_id: "InvertedPendulum-v5"
   lambd: 10
   sigma: 2
-  policy_type: chain
+  policy_type: mint  # chain
   max_iter: 1_000
   encoder:
     mode: path

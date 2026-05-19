@@ -1,27 +1,49 @@
-"""
-Script to test parallel environments in MuJoCo. The goal is to be able to reset all environments to the same initial state
-"""
+"""Utilities for running MuJoCo environments from the same state in parallel."""
 
 import gymnasium as gym
 import numpy as np
 
 
 class MuJoCoStateWrapper(gym.Wrapper):
-    """
-    Wrapper that allows to set the state of a mujoco env manually, and exposes the observation.
-    """
-    def set_mujoco_state(self, qpos, qvel):
-        qpos = np.asarray(qpos, dtype=np.float32)
-        qvel = np.asarray(qvel, dtype=np.float32)
+    """Expose full-state get/set helpers for MuJoCo vector environments."""
 
+    def __init__(self, env):
+        """Initialize the wrapper and cache MuJoCo state dimensions."""
+        super().__init__(env)
+        if not hasattr(self.unwrapped, "model") or not hasattr(self.unwrapped, "data"):
+            raise TypeError("MuJoCoStateWrapper requires a MuJoCo environment.")
+        self.nq = self.unwrapped.model.nq
+        self.nv = self.unwrapped.model.nv
+
+    def get_mujoco_state(self):
+        """Return the concatenated qpos/qvel MuJoCo state."""
+        return np.concatenate([
+            self.unwrapped.data.qpos.copy(),
+            self.unwrapped.data.qvel.copy(),
+        ])
+
+    def set_mujoco_state(self, state):
+        """Set the environment to a concatenated qpos/qvel MuJoCo state."""
+        state = np.asarray(state, dtype=float).reshape(-1)
+        expected_dim = self.nq + self.nv
+        if state.shape[0] != expected_dim:
+            raise ValueError(f"Expected state dim {expected_dim}, got {state.shape[0]}")
+
+        qpos = state[:self.nq]
+        qvel = state[self.nq:self.nq + self.nv]
         self.unwrapped.set_state(qpos, qvel)
-
-        # Return observation after manually setting state
         return self.unwrapped._get_obs()
+
+    def step(self, action):
+        """Clip the action before stepping so vector rollouts match MujocoSystem."""
+        action = np.clip(action, self.action_space.low, self.action_space.high)
+        return self.env.step(action)
 
 
 def make_env(env_id, seed):
+    """Build a thunk for one seeded MuJoCo environment worker."""
     def thunk():
+        """Create one wrapped MuJoCo environment instance."""
         env = gym.make(env_id)
         env = MuJoCoStateWrapper(env)
         env.reset(seed=seed)
@@ -30,10 +52,33 @@ def make_env(env_id, seed):
     return thunk
 
 
+def make_vine_envs(env_id: str, num_envs: int, seed: int):
+    """Create persistent asynchronous MuJoCo envs for vine trajectory collection."""
+    if int(num_envs) < 1:
+        raise ValueError(f"num_envs must be at least one, got {num_envs}")
+
+    return gym.vector.AsyncVectorEnv(
+        [make_env(env_id, seed=int(seed) + i) for i in range(int(num_envs))]
+    )
+
+
+def reset_vine_envs_same_state(envs, seed=None):
+    """Reset vector envs and synchronize all workers to worker zero's state."""
+    if seed is None:
+        envs.reset()
+    else:
+        envs.reset(seed=[int(seed) + i for i in range(envs.num_envs)])
+
+    states = envs.call("get_mujoco_state")
+    obs = envs.call("set_mujoco_state", states[0])
+    return np.stack(obs), states[0]
+
+
 # -------------------------
 # Create vectorized env
 # -------------------------
 def main():
+    """Run a small manual smoke test for synchronized vector MuJoCo envs."""
     N = 4
     env_id = "Swimmer-v5"
 
@@ -64,7 +109,8 @@ def main():
     # Reset all envs to same state
     # -------------------------
     print(f"Setting:\nq = {qpos_ref}\nqdot = {qvel_ref}")
-    obs_tuple = envs.call("set_mujoco_state", qpos_ref, qvel_ref)
+    state_ref = np.concatenate([qpos_ref, qvel_ref])
+    obs_tuple = envs.call("set_mujoco_state", state_ref)
     obs = np.stack(obs_tuple)
 
     print("Obs shape after manual state reset:", obs.shape)
