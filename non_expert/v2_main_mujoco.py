@@ -11,11 +11,8 @@ import numpy as np
 from core.config import Config, load_yaml
 from core.nn_policy import ChainPolicy, EncodedMINTPolicy, configure_faiss_threads
 from non_expert.helpers import (
-    J_upper_bound,
     Tee,
-    find_fixed_point_v2,
-    find_fixed_point_v3,
-    find_fixed_point_v4,
+    find_fixed_point_v5,
     plot_Q_values,
     seed_all,
 )
@@ -28,118 +25,136 @@ EVAL_SEED_OFFSET = 1_14_26
 
 
 def make_system(env):
+    """Create the system adapter matching the wrapped Gym environment."""
     if hasattr(env.unwrapped, "model") and hasattr(env.unwrapped, "data"):
         return MujocoSystem(env)
     return GymSystem(env)
 
 
-def make_dataset(Z, U, C, Z_next, system, do_bootstrap=False, max_bootstrap=1):
-    if not do_bootstrap:
-        return [(z, u, c, z_next) for z, u, c, z_next in zip(Z, U, C, Z_next)]
-
-    D = []
-    for i in range(len(Z)):
-        transition = []
-        last_feature = Z[i]
-
-        for step in range(max_bootstrap):
-            j = i + step
-            if j < len(Z):
-                transition.extend([Z[j], U[j], C[j]])
-                last_feature = Z_next[j]
-            else:
-                transition.extend([last_feature, np.zeros(system.nu), 0.0])
-
-        transition.append(last_feature)
-        D.append(tuple(transition))
-
-    return D
-
-
-def make_dataset_from_trajectories(trajectories, system, do_bootstrap=False, max_bootstrap=1):
-    D = []
-    for Z, U, C, Z_next in trajectories:
-        D.extend(make_dataset(
-            Z,
-            U,
-            C,
-            Z_next,
-            system,
-            do_bootstrap=do_bootstrap,
-            max_bootstrap=max_bootstrap,
-        ))
-    return D
-
-
-def optimistic_bootstrap_targets(D, policy, gamma, max_bootstrap, batch_size):
-    """Compute optimistic k-step targets for bootstrapped transition rows.
+def build_bootstrap_payloads(trajectories, action_dim, max_bootstrap, include_actions=True):
+    """Build dense k-step payload tensors from encoded trajectories.
 
     Args:
-        D: Bootstrapped transition rows with ``max_bootstrap`` action-cost steps.
-        policy: Fitted MINT-style policy used to evaluate tail upper bounds.
-        gamma: Discount factor.
-        max_bootstrap: Maximum bootstrap horizon stored in each transition row.
-        batch_size: Batch size for nearest-neighbor upper-bound queries.
+        trajectories: Encoded trajectories as ``(Z, U, C, Z_next)`` tuples.
+        action_dim: Number of action coordinates per transition.
+        max_bootstrap: Maximum contiguous prefix length to store per row.
+        include_actions: Whether to materialize action prefixes for ChainPolicy.
 
     Returns:
-        The minimum optimistic target over all stored bootstrap horizons for each row.
+        Tuple ``(actions, costs, next_features)``.  ``actions`` is either
+        ``None`` or shape ``(N, K, nu)``; costs and next features have shapes
+        ``(N, K)`` and ``(N, K, feature_dim)``.  Padded steps use zero
+        costs/actions and repeat the last valid next feature, matching the
+        original tuple-backed bootstrap semantics.
     """
-    assert max_bootstrap >= 1, "max_bootstrap must be at least one."
-    assert all(len(d) == 3 * max_bootstrap + 1 for d in D), (
-        "Each transition tuple must contain max_bootstrap action-cost steps plus a final feature."
+    max_bootstrap = int(max_bootstrap)
+    assert max_bootstrap >= 1, "max_bootstrap must be at least one"
+
+    action_rows = [] if include_actions else None
+    cost_rows = []
+    next_rows = []
+    zero_action = np.zeros(action_dim) if include_actions else None
+
+    for Z, U, C, Z_next in trajectories:
+        for i in range(len(Z)):
+            actions = [] if include_actions else None
+            costs = []
+            next_features = []
+
+            for step in range(max_bootstrap):
+                j = i + step
+                if j < len(Z):
+                    if include_actions:
+                        actions.append(U[j])
+                    costs.append(C[j])
+                else:
+                    if include_actions:
+                        actions.append(zero_action)
+                    costs.append(0.0)
+
+                # Match the old D tuple layout exactly: intermediate horizons
+                # point at the next transition feature Z[j + 1], while horizons
+                # beyond the trajectory/window repeat the last available Z_next.
+                tail = i + step + 1
+                if tail < len(Z):
+                    next_features.append(Z[tail])
+                else:
+                    last_valid = min(j, len(Z) - 1)
+                    next_features.append(Z_next[last_valid])
+
+            if include_actions:
+                action_rows.append(actions)
+            cost_rows.append(costs)
+            next_rows.append(next_features)
+
+    return (
+        None if action_rows is None else np.asarray(action_rows, dtype=float),
+        np.asarray(cost_rows, dtype=float),
+        np.asarray(next_rows, dtype=float),
     )
 
-    targets = np.empty((max_bootstrap, len(D)), dtype=float)
-    discounted_costs = np.zeros(len(D), dtype=float)
+
+def optimistic_bootstrap_targets_from_payloads(bootstrap_costs, bootstrap_nexts, policy, gamma, batch_size):
+    """Compute optimistic k-step targets from dense bootstrap payload tensors."""
+    assert bootstrap_costs.ndim == 2, "bootstrap_costs must have shape (N, K)"
+    assert bootstrap_nexts.ndim == 3, "bootstrap_nexts must have shape (N, K, feature_dim)"
+    assert bootstrap_nexts.shape[:2] == bootstrap_costs.shape, "cost and next tensors must share (N, K)"
+
+    num_rows, max_bootstrap = bootstrap_costs.shape
+    targets = np.empty((max_bootstrap, num_rows), dtype=float)
+    discounted_costs = np.zeros(num_rows, dtype=float)
 
     for step in range(max_bootstrap):
-        costs = np.asarray([d[2 + 3 * step] for d in D], dtype=float).reshape(-1)
-        z_next = np.asarray([d[3 + 3 * step] for d in D], dtype=float)
-        discounted_costs = discounted_costs + (gamma ** step) * costs
+        discounted_costs = discounted_costs + (gamma ** step) * bootstrap_costs[:, step]
         targets[step] = discounted_costs + (gamma ** (step + 1)) * policy.J_upper_bound_knn(
-            z_next,
+            bootstrap_nexts[:, step, :],
             batch_size=batch_size,
         )
 
     return np.min(targets, axis=0)
 
 
-def prune_dataset(Z, U, C, Z_next, D, Q, J_ub, lambd):
-    """Prune rows whose stored value is above the current upper bound."""
+def prune_dataset(Z, U, C, Z_next, bootstrap_actions, bootstrap_costs, bootstrap_nexts, Q, J_ub):
+    """Prune active rows and aligned dense bootstrap payloads."""
     to_prune = np.where(Q > J_ub)[0]
     keep = np.ones(len(Z), dtype=bool)
     keep[to_prune] = False
+    pruned_actions = None if bootstrap_actions is None else np.delete(bootstrap_actions, to_prune, axis=0)
     return (
         np.delete(Z, to_prune, axis=0),
         np.delete(U, to_prune, axis=0),
         np.delete(C, to_prune, axis=0),
         np.delete(Z_next, to_prune, axis=0),
-        [d for d, should_keep in zip(D, keep) if should_keep],
+        pruned_actions,
+        np.delete(bootstrap_costs, to_prune, axis=0),
+        np.delete(bootstrap_nexts, to_prune, axis=0),
         np.delete(Q, to_prune, axis=0),
         len(to_prune),
         keep,
     )
 
 
-def make_action_chains(D, last_bootstraps, nu):
-    """Build pre-trimmed action chains from bootstrapped dataset rows."""
+def make_action_chains(bootstrap_actions, last_bootstraps, nu):
+    """Build pre-trimmed action chains from dense bootstrap action payloads."""
+    if bootstrap_actions is None:
+        raise ValueError("ChainPolicy requires bootstrap action payloads.")
+    bootstrap_actions = np.asarray(bootstrap_actions, dtype=float)
     last_bootstraps = np.asarray(last_bootstraps, dtype=int).reshape(-1)
-    assert len(D) == last_bootstraps.shape[0], "D and last_bootstraps must have the same length"
+    assert bootstrap_actions.shape[0] == last_bootstraps.shape[0], (
+        "bootstrap_actions and last_bootstraps must have the same number of rows"
+    )
 
     action_chains = []
-    for d, bootstrap in zip(D, last_bootstraps):
+    for row_actions, bootstrap in zip(bootstrap_actions, last_bootstraps):
         assert bootstrap >= 1, "Bootstrap horizons must be at least one."
-        assert bootstrap <= (len(d) - 1) // 3, "Bootstrap horizon exceeds stored actions."
-        actions = [
-            np.asarray(d[1 + 3 * step], dtype=float).reshape(nu)
-            for step in range(bootstrap)
-        ]
-        action_chains.append(np.asarray(actions, dtype=float).reshape(-1, nu))
+        assert bootstrap <= row_actions.shape[0], "Bootstrap horizon exceeds stored actions."
+        action_chains.append(np.asarray(row_actions[:bootstrap], dtype=float).reshape(-1, nu))
 
     return action_chains
 
 
 def empirical_lipschitz_constant(Z, Q, batch_size):
+    """Estimate the largest empirical value slope over all feature pairs."""
     Z = np.asarray(Z, dtype=float)
     Q = np.asarray(Q, dtype=float).reshape(-1)
 
@@ -175,6 +190,7 @@ def empirical_lipschitz_constant(Z, Q, batch_size):
 
 
 def logged_lipschitz_constant(iteration, Z, Q, every, previous, batch_size):
+    """Return a freshly computed Lipschitz estimate on scheduled iterations."""
     every = int(every)
     if every <= 0 or iteration % every != 0:
         return previous
@@ -182,6 +198,7 @@ def logged_lipschitz_constant(iteration, Z, Q, every, previous, batch_size):
 
 
 def flatten_trajectories(trajectories):
+    """Concatenate per-trajectory transition arrays into one batch."""
     Z, U, C, Z_next = zip(*trajectories)
     return (
         np.concatenate(Z, axis=0),
@@ -192,11 +209,13 @@ def flatten_trajectories(trajectories):
 
 
 def assert_feature_dim(Z, Z_next, feature_dim):
+    """Validate that encoded current and next features share the expected width."""
     assert Z.shape[1] == feature_dim, f"Expected feature dim {feature_dim}, got Z shape {Z.shape}"
     assert Z_next.shape[1] == feature_dim, f"Expected feature dim {feature_dim}, got Z_next shape {Z_next.shape}"
 
 
 def collect_trajectories(system, policy=None, sigma=0.0, seed=None, max_steps=None, num_trajectories: int = 1):
+    """Collect raw environment trajectories under random actions or a policy."""
     trajectories = []
     for traj_idx in range(num_trajectories):
         traj_seed = None if seed is None else seed + traj_idx
@@ -418,6 +437,7 @@ def collect_trajectories_vine_chain(
 
 
 def evaluate_policy(system, policy, config, seed_offset=11_426):
+    """Evaluate a fitted policy over deterministic seeded rollouts."""
     returns = []
     for i in range(config.eval_samples):
         obs = system.reset(seed=seed_offset + i)
@@ -442,6 +462,7 @@ def evaluate_policy(system, policy, config, seed_offset=11_426):
 
 
 def load_mujoco_config(cfg_path, env_id):
+    """Load defaults plus environment-specific overrides for a MuJoCo run."""
     config_yaml = load_yaml(cfg_path)
     config = Config.dict2config(config_yaml["defaults"])
 
@@ -549,39 +570,36 @@ if __name__ == "__main__":
     feature_dim = int(encoder.output_dim)
     do_bootstrap = config.do_bootstrap
     max_bootstrap = config.max_bootstrap
+    payload_bootstrap = max_bootstrap if do_bootstrap else 1
     policy_cls = ChainPolicy if config.policy_type == "chain" else EncodedMINTPolicy
     pi_mint = policy_cls(encoder=encoder, nx=feature_dim, nu=system.nu, k=config.k, lambd=config.lambd)
+    needs_action_payloads = isinstance(pi_mint, ChainPolicy)
 
-    def solve_Q(D, warm_Q=None):
-        """Solve for Q values and normalize bootstrap metadata."""
-        if do_bootstrap:
-            return find_fixed_point_v4(
-                D,
-                gamma=config.gamma,
-                lambd=config.lambd,
-                tol=config.q_tol,
-                max_iter=config.q_iter,
-                warm_Q=warm_Q,
-                K=max_bootstrap,
-                neighbors=config.k,
-            )
-        Q = find_fixed_point_v2(
-            D,
+    def solve_Q(Z, bootstrap_costs, bootstrap_nexts, warm_Q=None):
+        """Solve for active-row Q values from dense bootstrap payloads."""
+        neighbors = config.k if do_bootstrap else None
+        Q, last_bootstraps, bootstrap_stats, fixed_point_steps = find_fixed_point_v5(
+            Z,
+            bootstrap_costs,
+            bootstrap_nexts,
             gamma=config.gamma,
             lambd=config.lambd,
             tol=config.q_tol,
             max_iter=config.q_iter,
             warm_Q=warm_Q,
+            neighbors=neighbors,
             batch_size=config.distance_batch_size,
         )
-        last_bootstraps = np.ones(len(D), dtype=int)
-        bootstrap_stats = {"average": 1.0, "median": 1.0}
-        return Q, last_bootstraps, bootstrap_stats, None
+        if not do_bootstrap:
+            last_bootstraps = np.ones(len(Z), dtype=int)
+            bootstrap_stats = {"average": 1.0, "median": 1.0}
+            fixed_point_steps = None
+        return Q, last_bootstraps, bootstrap_stats, fixed_point_steps
 
-    def set_policy_data(policy, Z, U, Q, D, last_bootstraps):
-        """Set policy data with action chains when using ChainPolicy."""
+    def set_policy_data(policy, Z, U, Q, bootstrap_actions, last_bootstraps):
+        """Set policy data, including dense-payload chains for ChainPolicy."""
         if isinstance(policy, ChainPolicy):
-            action_chains = make_action_chains(D, last_bootstraps, system.nu)
+            action_chains = make_action_chains(bootstrap_actions, last_bootstraps, system.nu)
             policy.set_data(Z, U, Q, action_chains)
         else:
             policy.set_data(Z, U, Q)
@@ -614,28 +632,33 @@ if __name__ == "__main__":
     encoded_trajectories = encode_trajectories(raw_trajectories, encoder)
     Z, U, C, Z_next = flatten_trajectories(encoded_trajectories)
     assert_feature_dim(Z, Z_next, feature_dim)
+    bootstrap_actions, bootstrap_costs, bootstrap_nexts = build_bootstrap_payloads(
+        encoded_trajectories,
+        action_dim=system.nu,
+        max_bootstrap=payload_bootstrap,
+        include_actions=needs_action_payloads,
+    )
 
     update_start_time = time.time()
-    D = make_dataset_from_trajectories(
-        encoded_trajectories,
-        system,
-        do_bootstrap=do_bootstrap,
-        max_bootstrap=max_bootstrap,
+    initial_samples = len(Z)
+    Q, last_bootstraps, bootstrap_stats, fixed_point_steps = solve_Q(
+        Z,
+        bootstrap_costs,
+        bootstrap_nexts,
     )
-    initial_samples = len(D)
-    Q, last_bootstraps, bootstrap_stats, fixed_point_steps = solve_Q(D)
-    set_policy_data(pi_mint, Z, U, Q, D, last_bootstraps)
+    set_policy_data(pi_mint, Z, U, Q, bootstrap_actions, last_bootstraps)
     # distances = pi_mint.distances_to_dataset(Z, batch_size=config.distance_batch_size)
     J_ub = pi_mint.J_upper_bound_knn(Z, batch_size=config.distance_batch_size)
-    Z, U, C, Z_next, D, Q, pruned, keep = prune_dataset(
+    Z, U, C, Z_next, bootstrap_actions, bootstrap_costs, bootstrap_nexts, Q, pruned, keep = prune_dataset(
         Z,
         U,
         C,
         Z_next,
-        D,
+        bootstrap_actions,
+        bootstrap_costs,
+        bootstrap_nexts,
         Q,
         J_ub,
-        config.lambd,
     )
     last_bootstraps = last_bootstraps[keep]
 
@@ -646,7 +669,7 @@ if __name__ == "__main__":
     avg_bootstrap_steps = np.ones(config.episodes + 1)
     median_bootstrap_steps = np.ones(config.episodes + 1)
 
-    set_policy_data(pi_mint, Z, U, Q, D, last_bootstraps)
+    set_policy_data(pi_mint, Z, U, Q, bootstrap_actions, last_bootstraps)
 
     plot_Q_values(pi_mint,results_path, 0)
 
@@ -727,24 +750,23 @@ if __name__ == "__main__":
         encoded_new_trajectories = encode_trajectories(raw_new_trajectories, encoder)
         Z_new, U_new, C_new, Z_next_new = flatten_trajectories(encoded_new_trajectories)
         assert_feature_dim(Z_new, Z_next_new, feature_dim)
+        bootstrap_actions_new, bootstrap_costs_new, bootstrap_nexts_new = build_bootstrap_payloads(
+            encoded_new_trajectories,
+            action_dim=system.nu,
+            max_bootstrap=payload_bootstrap,
+            include_actions=needs_action_payloads,
+        )
 
         update_start_time = time.time()
         # distances_new = pi_mint.distances_to_dataset(Z_new, batch_size=config.distance_batch_size)
         # distances_next_new = pi_mint.distances_to_dataset(Z_next_new, batch_size=config.distance_batch_size)
         Q_new = pi_mint.J_upper_bound_knn(Z_new, batch_size=config.distance_batch_size)
-        D_new = None
         if do_bootstrap:
-            D_new = make_dataset_from_trajectories(
-                encoded_new_trajectories,
-                system,
-                do_bootstrap=do_bootstrap,
-                max_bootstrap=max_bootstrap,
-            )
-            TQ_new = optimistic_bootstrap_targets(
-                D_new,
+            TQ_new = optimistic_bootstrap_targets_from_payloads(
+                bootstrap_costs_new,
+                bootstrap_nexts_new,
                 pi_mint,
                 gamma=config.gamma,
-                max_bootstrap=max_bootstrap,
                 batch_size=config.distance_batch_size,
             )
         else:
@@ -776,36 +798,37 @@ if __name__ == "__main__":
             "median": median_bootstrap_steps[t - 1],
         }
         if np.any(improves):
-            if D_new is None:
-                D_new = make_dataset_from_trajectories(
-                    encoded_new_trajectories,
-                    system,
-                    do_bootstrap=do_bootstrap,
-                    max_bootstrap=max_bootstrap,
-                )
-
             Z = np.concatenate([Z, Z_new[improves]], axis=0)
             U = np.concatenate([U, U_new[improves]], axis=0)
             C = np.concatenate([C, C_new[improves]], axis=0)
             Z_next = np.concatenate([Z_next, Z_next_new[improves]], axis=0)
-            D.extend([d for d, improve in zip(D_new, improves) if improve])
-            Q, last_bootstraps, bootstrap_stats, fixed_point_steps = solve_Q(D, warm_Q=Q)
-            set_policy_data(pi_mint, Z, U, Q, D, last_bootstraps)
+            if needs_action_payloads:
+                bootstrap_actions = np.concatenate([bootstrap_actions, bootstrap_actions_new[improves]], axis=0)
+            bootstrap_costs = np.concatenate([bootstrap_costs, bootstrap_costs_new[improves]], axis=0)
+            bootstrap_nexts = np.concatenate([bootstrap_nexts, bootstrap_nexts_new[improves]], axis=0)
+            Q, last_bootstraps, bootstrap_stats, fixed_point_steps = solve_Q(
+                Z,
+                bootstrap_costs,
+                bootstrap_nexts,
+                warm_Q=Q,
+            )
+            set_policy_data(pi_mint, Z, U, Q, bootstrap_actions, last_bootstraps)
             # distances = pi_mint.distances_to_dataset(Z, batch_size=config.distance_batch_size)
             J_ub = pi_mint.J_upper_bound_knn(Z, batch_size=config.distance_batch_size)
-            Z, U, C, Z_next, D, Q, pruned, keep = prune_dataset(
+            Z, U, C, Z_next, bootstrap_actions, bootstrap_costs, bootstrap_nexts, Q, pruned, keep = prune_dataset(
                 Z,
                 U,
                 C,
                 Z_next,
-                D,
+                bootstrap_actions,
+                bootstrap_costs,
+                bootstrap_nexts,
                 Q,
                 J_ub,
-                config.lambd,
             )
             last_bootstraps = last_bootstraps[keep]
 
-            set_policy_data(pi_mint, Z, U, Q, D, last_bootstraps)
+            set_policy_data(pi_mint, Z, U, Q, bootstrap_actions, last_bootstraps)
 
         if t % 50 == 0:
             plot_Q_values(pi_mint,results_path, t)

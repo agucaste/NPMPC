@@ -41,6 +41,6 @@ class DynamicsEncoder(nn.Module):
         """Predict next latent state and reward from an observation-action batch."""
         z = self.encode(obs)
         za = torch.cat([z, act], dim=-1)
-        z_next_pred = self.dynamics_head(za)
+        z_next_pred = z + self.dynamics_head(za)  # With this change, dynamics_head only predicts "Delta_z(zt, at), instead of the full next latent. May make learning easier."
         r_pred = self.reward_head(za).squeeze(-1)
         return z, z_next_pred, r_pred

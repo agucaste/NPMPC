@@ -27,7 +27,7 @@ defaults:
   # Number of refinement samples per iteration
   M: 1000
   # Number of iterations of the algorithm
-  max_iter: 1_000
+  episodes: 1_000
   # Trajectories run per iteration
   traj_per_iter: 1
   # Tolerance for fixed points
@@ -55,16 +55,18 @@ defaults:
 InvertedPendulum-v5:
   env_id: "InvertedPendulum-v5"
   lambd: 10
-  sigma: 2
-  policy_type: mint  # chain
-  max_iter: 1_000
+  sigma: .5
+  policy_type: chain
+  episodes: 200
+  td_slack: 0.05
+  anneal_sigma: True
   encoder:
     mode: path
     path: "non_expert/minari/outputs/InvertedPendulum-v5/pca/pca_encoder.pkl"
 
 Pendulum-v1:
   env_id: "Pendulum-v1"
-  max_iter: 1_000
+  episodes: 1_000
   M: 1000
   sigma: 3
   lambd: 10
@@ -73,26 +75,27 @@ Pendulum-v1:
 
 BipedalWalker-v3:
   env_id: "BipedalWalker-v3"
-  max_iter: 1_000
+  episodes: 1_000
   M: 1000
   sigma: 3
   lambd: 10
 
 Swimmer-v5:
   env_id: "Swimmer-v5"
-  max_iter: 1_000
-  M: 1000
-  sigma: 2
-  lambd: 20
+  episodes: 1_000
+  sigma: 1
+  lambd: 2
   gamma: 0.9999  # See https://arxiv.org/pdf/2208.07587
-  td_slack: 0
+  td_slack: 0.05
+  max_bootstrap: 3
+  policy_type: chain
   encoder:
     mode: path
-    path: "non_expert/minari/outputs/Swimmer-v5/nn_encoder/dynamics_encoder.pkl"
+    path: "non_expert/minari/outputs/Swimmer-v5/nn_encoder_last/dynamics_encoder.pkl"
 
 HalfCheetah-v5:
   env_id: "HalfCheetah-v5"
-  max_iter: 1_000
+  episodes: 1_000
   M: 1000
   traj_per_iter: 1
   sigma: 3

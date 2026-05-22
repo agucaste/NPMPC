@@ -279,7 +279,7 @@ def find_fixed_point_v3(
         Q = np.concatenate([warm_Q, np.zeros(len(D) - len(warm_Q))])
 
     gamma_powers = gamma ** np.arange(1, K + 1)
-    all_bootstrap_steps = []
+    bootstrap_step_counts = np.zeros(K, dtype=np.int64)
     for it in range(max_iter):
         bootstraps = np.vstack(
             [
@@ -289,16 +289,16 @@ def find_fixed_point_v3(
         )
         k_step_values = discounted_costs + gamma_powers[:, None] * bootstraps
         bootstrap_steps = np.argmin(k_step_values, axis=0) + 1
-        all_bootstrap_steps.append(bootstrap_steps)
+        bootstrap_step_counts += np.bincount(bootstrap_steps, minlength=K + 1)[1:]
         Q_next = np.min(k_step_values, axis=0)
 
         if np.max(np.abs(Q_next - Q)) < tol:
-            bootstrap_stats = _bootstrap_step_stats(all_bootstrap_steps)
+            bootstrap_stats = _bootstrap_step_stats_from_counts(bootstrap_step_counts)
             return Q_next, bootstrap_steps, bootstrap_stats, it + 1
 
         Q = Q_next
 
-    bootstrap_stats = _bootstrap_step_stats(all_bootstrap_steps)
+    bootstrap_stats = _bootstrap_step_stats_from_counts(bootstrap_step_counts)
     return Q, bootstrap_steps, bootstrap_stats, max_iter
 
 
@@ -355,7 +355,7 @@ def find_fixed_point_v4(
         Q = np.concatenate([warm_Q, np.zeros(len(D) - len(warm_Q))])
 
     gamma_powers = gamma ** np.arange(1, K + 1)
-    all_bootstrap_steps = []
+    bootstrap_step_counts = np.zeros(K, dtype=np.int64)
     for it in range(max_iter):
         bootstraps = np.vstack(
             [
@@ -365,28 +365,144 @@ def find_fixed_point_v4(
         )
         k_step_values = discounted_costs + gamma_powers[:, None] * bootstraps
         bootstrap_steps = np.argmin(k_step_values, axis=0) + 1
-        all_bootstrap_steps.append(bootstrap_steps)
+        bootstrap_step_counts += np.bincount(bootstrap_steps, minlength=K + 1)[1:]
         Q_next = np.min(k_step_values, axis=0)
 
         if np.max(np.abs(Q_next - Q)) < tol:
-            bootstrap_stats = _bootstrap_step_stats(all_bootstrap_steps)
+            bootstrap_stats = _bootstrap_step_stats_from_counts(bootstrap_step_counts)
             return Q_next, bootstrap_steps, bootstrap_stats, it + 1
 
         Q = Q_next
 
-    bootstrap_stats = _bootstrap_step_stats(all_bootstrap_steps)
+    bootstrap_stats = _bootstrap_step_stats_from_counts(bootstrap_step_counts)
     return Q, bootstrap_steps, bootstrap_stats, max_iter
 
 
-def _bootstrap_step_stats(all_bootstrap_steps: List[np.ndarray]) -> dict[str, float]:
-    """Summarize selected bootstrap steps across value-iteration updates."""
-    if not all_bootstrap_steps:
+def find_fixed_point_v5(
+    x: np.ndarray,
+    bootstrap_costs: np.ndarray,
+    bootstrap_nexts: np.ndarray,
+    lambd: float,
+    gamma: float,
+    tol: float = 1e-3,
+    max_iter: int = 1000,
+    warm_Q: Optional[np.ndarray] = None,
+    neighbors: Optional[int] = 50,
+    batch_size: Optional[int] = None,
+):
+    r"""Solve bootstrapped value iteration from dense active-row tensors.
+
+    This is the array-backed equivalent of ``find_fixed_point_v4``.  Instead of
+    reading Python transition tuples, it consumes one active feature matrix and
+    dense k-step bootstrap tensors whose first axis is the active dataset row.
+
+    Args:
+        x: Active dataset features with shape ``(N, feature_dim)``.
+        bootstrap_costs: Prefix costs with shape ``(N, K)``.  Padded steps
+            should already have zero cost.
+        bootstrap_nexts: Tail features with shape ``(N, K, feature_dim)``.
+            Padded steps should already repeat the last valid tail feature.
+        lambd: Lipschitz penalty coefficient.
+        gamma: Discount factor.
+        tol: Sup-norm convergence tolerance.
+        max_iter: Maximum number of value-iteration updates.
+        warm_Q: Optional previous Q values for warm-starting the active rows.
+        neighbors: Number of FAISS nearest neighbors used in the upper-bound
+            approximation.  If ``None``, use the exact batched dense reduction
+            instead of caching nearest-neighbor tables.
+        batch_size: Query batch size for exact dense reductions when
+            ``neighbors`` is ``None``.
+
+    Returns:
+        Tuple of Q values, final selected bootstrap steps, bootstrap summary
+        statistics, and the number of value-iteration updates run.
+    """
+    x = as_rows(x)
+    bootstrap_costs = np.asarray(bootstrap_costs, dtype=float)
+    bootstrap_nexts = np.asarray(bootstrap_nexts, dtype=float)
+
+    assert x.shape[0] > 0 and lambd > 0 and 0 < gamma < 1, "Invalid inputs"
+    assert bootstrap_costs.ndim == 2, "bootstrap_costs must have shape (N, K)"
+    assert bootstrap_nexts.ndim == 3, "bootstrap_nexts must have shape (N, K, feature_dim)"
+    assert bootstrap_costs.shape[0] == x.shape[0], "cost rows must match active features"
+    assert bootstrap_nexts.shape[:2] == bootstrap_costs.shape, "cost and next tensors must share (N, K)"
+    assert bootstrap_nexts.shape[2] == x.shape[1], "next feature dimension must match x"
+    assert neighbors is None or neighbors >= 1, "neighbors must be None or at least 1"
+
+    n, K = bootstrap_costs.shape
+    if neighbors is not None:
+        x_faiss = np.ascontiguousarray(x.astype(np.float32))
+        index = fa.IndexFlatL2(x_faiss.shape[1])
+        index.add(x_faiss)
+
+        k_neighbors = min(int(neighbors), n)
+        neighbor_indices = []
+        neighbor_distances = []
+        for step in range(K):
+            x_next_faiss = np.ascontiguousarray(bootstrap_nexts[:, step, :].astype(np.float32))
+            D_sq, I = index.search(x_next_faiss, k_neighbors)
+            neighbor_indices.append(I)
+            neighbor_distances.append(np.sqrt(np.maximum(D_sq, 0.0)))
+
+    discounted_costs = np.zeros((K, n))
+    running_cost = np.zeros(n)
+    for step in range(K):
+        running_cost = running_cost + (gamma ** step) * bootstrap_costs[:, step]
+        discounted_costs[step] = running_cost
+
+    if warm_Q is None:
+        Q = np.zeros(n)
+    else:
+        assert len(warm_Q) <= n, "warm_Q cannot be longer than the active dataset"
+        Q = np.concatenate([warm_Q, np.zeros(n - len(warm_Q))])
+
+    gamma_powers = gamma ** np.arange(1, K + 1)
+    bootstrap_step_counts = np.zeros(K, dtype=np.int64)
+    for it in range(max_iter):
+        if neighbors is None:
+            bootstraps = np.vstack(
+                [
+                    _J_ub(x, bootstrap_nexts[:, step, :], Q, lambd, batch_size=batch_size)
+                    for step in range(K)
+                ]
+            )
+        else:
+            bootstraps = np.vstack(
+                [
+                    np.min(Q[neighbor_indices[step]] + lambd * neighbor_distances[step], axis=1)
+                    for step in range(K)
+                ]
+            )
+        k_step_values = discounted_costs + gamma_powers[:, None] * bootstraps
+        bootstrap_steps = np.argmin(k_step_values, axis=0) + 1
+        bootstrap_step_counts += np.bincount(bootstrap_steps, minlength=K + 1)[1:]
+        Q_next = np.min(k_step_values, axis=0)
+
+        if np.max(np.abs(Q_next - Q)) < tol:
+            bootstrap_stats = _bootstrap_step_stats_from_counts(bootstrap_step_counts)
+            return Q_next, bootstrap_steps, bootstrap_stats, it + 1
+
+        Q = Q_next
+
+    bootstrap_stats = _bootstrap_step_stats_from_counts(bootstrap_step_counts)
+    return Q, bootstrap_steps, bootstrap_stats, max_iter
+
+
+def _bootstrap_step_stats_from_counts(step_counts: np.ndarray) -> dict[str, float]:
+    """Summarize selected bootstrap steps from exact counts per bootstrap horizon."""
+    step_counts = np.asarray(step_counts, dtype=np.int64).reshape(-1)
+    total = int(np.sum(step_counts))
+    if total == 0:
         return {"average": 1.0, "median": 1.0}
 
-    bootstrap_steps = np.concatenate(all_bootstrap_steps)
+    steps = np.arange(1, step_counts.size + 1, dtype=float)
+    cumulative = np.cumsum(step_counts)
+    # This is the lower discrete median, not np.median's even-sample average;
+    # it is simpler and can move down when mass shifts across adjacent steps.
+    median = np.searchsorted(cumulative, (total + 1) // 2, side="left") + 1
     return {
-        "average": float(np.mean(bootstrap_steps)),
-        "median": float(np.median(bootstrap_steps)),
+        "average": float(np.sum(steps * step_counts) / total),
+        "median": float(median),
     }
 
 

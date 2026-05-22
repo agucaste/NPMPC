@@ -434,14 +434,18 @@ class ChainPolicy(EncodedMINTPolicy):
             return super().make_step(xq, w=w)
 
         if self._pending_action_idx >= len(self._pending_actions):
-            zq = self.encoder.encode(xq)
-            i = self.greedy_index(zq)
-            self._pending_actions = self.action_chains[i]
+            self._pending_actions = self.make_chain(xq)
             self._pending_action_idx = 0
     
         u = self._pending_actions[self._pending_action_idx]
         self._pending_action_idx += 1
         return u.reshape(1, -1)
+
+    def make_chain(self, xq: np.ndarray) -> np.ndarray:
+        """Return a copy of the greedy action chain selected at the query observation."""
+        zq = self.encoder.encode(xq)
+        i = self.greedy_index(zq)
+        return self.action_chains[i].copy()
 
     def _format_action_chains(self, action_chains: list[np.ndarray]) -> list[np.ndarray]:
         """Convert action chains to validated row arrays."""

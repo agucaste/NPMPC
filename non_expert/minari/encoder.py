@@ -3,7 +3,7 @@ Minimal Minari encoder pretraining example.
 
 Learns an encoder phi(s) so that:
     z_t = phi(s_t)
-    g(z_t, a_t) ~= phi(s_{t+1})
+    z_t + g(z_t, a_t) ~= phi(s_{t+1})
     h(z_t, a_t) ~= r_t
 
 After training, discard g and h. Keep phi frozen.
@@ -12,6 +12,7 @@ After training, discard g and h. Keep phi frozen.
 from __future__ import annotations
 
 import argparse
+import json
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,7 +22,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from matplotlib.colors import LogNorm
-from sklearn.metrics import pairwise_distances
+from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, TensorDataset
 
@@ -211,9 +212,20 @@ def compute_batch_losses(
         z_next = model.encode(next_obs_b)
 
     dyn_loss = torch.mean((z_next_pred - z_next) ** 2)
+    # Persistence baseline: predict z_{t+1} as z_t.
+    baseline_dyn_loss = torch.mean((z - z_next) ** 2)
+    relative_dyn_loss = dyn_loss / torch.clamp(baseline_dyn_loss, min=1e-12)
     rew_loss = torch.mean((r_pred - rew_b) ** 2)
     var_loss = variance_loss(z)
     loss = dyn_loss + alpha_reward * rew_loss + beta_var * var_loss
+
+    return {
+        "loss": loss,
+        "dyn": dyn_loss,
+        "dyn_rel": relative_dyn_loss,
+        "rew": rew_loss,
+        "var": var_loss,
+    }
     return {"loss": loss, "dyn": dyn_loss, "rew": rew_loss, "var": var_loss}
 
 
@@ -227,7 +239,7 @@ def evaluate_loader_losses(
 ) -> dict[str, float]:
     """Average pretraining losses over a DataLoader."""
     model.eval()
-    totals = {"loss": 0.0, "dyn": 0.0, "rew": 0.0, "var": 0.0}
+    totals = {"loss": 0.0, "dyn": 0.0, "dyn_rel": 0.0, "rew": 0.0, "var": 0.0}
     n_batches = 0
 
     for obs_b, act_b, rew_b, next_obs_b in loader:
@@ -322,7 +334,7 @@ def train_encoder(
 
     for epoch in range(1, epochs + 1):
         model.train()
-        train_totals = {"loss": 0.0, "dyn": 0.0, "rew": 0.0, "var": 0.0}
+        train_totals = {"loss": 0.0, "dyn": 0.0, "dyn_rel": 0.0, "rew": 0.0, "var": 0.0}
         n_batches = 0
 
         for obs_b, act_b, rew_b, next_obs_b in train_loader:
@@ -364,7 +376,8 @@ def train_encoder(
             f"val_loss={row['val_loss']:.5f} | "
             f"val_dyn={row['val_dyn']:.5f} | "
             f"val_rew={row['val_rew']:.5f} | "
-            f"val_var={row['val_var']:.5f}"
+            f"val_var={row['val_var']:.5f} | "
+            f"val_dyn_rel={row['val_dyn_rel']:.5f}"
         )
 
     payload = FrozenEncoder(
@@ -481,34 +494,189 @@ def neighborhood_preservation_score(
     seed: int,
 ) -> float:
     """Measure how many nearest neighbors survive after encoding."""
+    overlaps_by_k = neighborhood_preservation_overlaps(
+        obs_n=obs_n,
+        z=z,
+        max_points=max_points,
+        neighbor_values=[n_neighbors],
+        seed=seed,
+    )
+    if not overlaps_by_k:
+        return float("nan")
+    overlaps = next(iter(overlaps_by_k.values()))
+    return float(np.mean(overlaps))
+
+
+def neighborhood_preservation_overlaps(
+    obs_n: np.ndarray,
+    z: np.ndarray,
+    max_points: int,
+    neighbor_values: list[int],
+    seed: int,
+) -> dict[int, np.ndarray]:
+    """Compute per-point nearest-neighbor preservation overlaps.
+
+    Args:
+        obs_n: Normalized observations in the original observation space.
+        z: Encoded observations in latent space.
+        max_points: Maximum number of points sampled for nearest-neighbor comparison.
+        neighbor_values: Neighborhood sizes to evaluate.
+        seed: Random seed used when subsampling observations.
+
+    Returns:
+        Mapping from evaluated neighbor count to one overlap score per sampled point.
+    """
     rng = np.random.default_rng(seed)
     idx = sample_indices(obs_n.shape[0], max_points=max_points, rng=rng)
-    n_neighbors = min(n_neighbors, len(idx) - 1)
-    if n_neighbors < 1:
-        return float("nan")
+    max_neighbors = len(idx) - 1
+    if max_neighbors < 1:
+        return {}
+
+    valid_neighbors = sorted({min(k, max_neighbors) for k in neighbor_values if k > 0})
+    if not valid_neighbors:
+        return {}
 
     obs_sample = obs_n[idx]
     z_sample = z[idx]
 
-    obs_dist = pairwise_distances(obs_sample)
-    z_dist = pairwise_distances(z_sample)
-    obs_nn = np.argsort(obs_dist, axis=1)[:, 1 : n_neighbors + 1]
-    z_nn = np.argsort(z_dist, axis=1)[:, 1 : n_neighbors + 1]
+    obs_order = nearest_neighbor_indices(obs_sample, max_neighbors=max(valid_neighbors))
+    z_order = nearest_neighbor_indices(z_sample, max_neighbors=max(valid_neighbors))
 
-    overlaps = [
-        len(set(obs_neighbors).intersection(z_neighbors)) / n_neighbors
-        for obs_neighbors, z_neighbors in zip(obs_nn, z_nn)
-    ]
-    return float(np.mean(overlaps))
+    overlaps_by_k = {}
+    for n_neighbors in valid_neighbors:
+        obs_nn = obs_order[:, :n_neighbors]
+        z_nn = z_order[:, :n_neighbors]
+        overlaps_by_k[n_neighbors] = np.asarray(
+            [
+                len(set(obs_neighbors).intersection(z_neighbors)) / n_neighbors
+                for obs_neighbors, z_neighbors in zip(obs_nn, z_nn)
+            ],
+            dtype=np.float32,
+        )
+    return overlaps_by_k
+
+
+def nearest_neighbor_indices(points: np.ndarray, max_neighbors: int) -> np.ndarray:
+    """Find nearest-neighbor indices for each point, excluding the point itself.
+
+    Args:
+        points: Points used both as queries and as the neighbor reference set.
+        max_neighbors: Number of neighbors to return for each point.
+
+    Returns:
+        Integer array with shape ``(n_points, max_neighbors)``.
+    """
+    points = np.asarray(points)
+    n_points = points.shape[0]
+    if max_neighbors >= n_points:
+        raise ValueError("max_neighbors must be smaller than the number of points.")
+
+    model = NearestNeighbors(n_neighbors=max_neighbors + 1)
+    model.fit(points)
+    indices = model.kneighbors(points, return_distance=False)
+    neighbors = np.empty((n_points, max_neighbors), dtype=indices.dtype)
+    for row_idx, row in enumerate(indices):
+        neighbors[row_idx] = row[row != row_idx][:max_neighbors]
+    return neighbors
+
+
+def plot_neighborhood_preservation(overlaps_by_k: dict[int, np.ndarray], output_dir: Path) -> None:
+    """Plot neighborhood-preservation overlap distributions."""
+    if not overlaps_by_k:
+        return
+
+    neighbor_values = sorted(overlaps_by_k)
+    distributions = [overlaps_by_k[k] for k in neighbor_values]
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    parts = ax.violinplot(distributions, showmeans=False, showmedians=False, showextrema=False)
+    violin_color = "C0"
+    for body in parts["bodies"]:
+        body.set_facecolor(violin_color)
+        body.set_edgecolor("C0")
+        body.set_alpha(0.9)
+        body.set_linewidth(1.2)
+
+    rng = np.random.default_rng(0)
+    for pos, (values, body) in enumerate(zip(distributions, parts["bodies"]), start=1):
+        q1, median, q3 = np.quantile(values, [0.25, 0.5, 0.75])
+        median_min, median_max = violin_bounds_at_y(body, median, fallback_center=pos)
+        ax.hlines(median, median_min, median_max, color="#333333", linestyle="--", linewidth=1.0, zorder=4)
+        for quartile in (q1, q3):
+            line_min, line_max = violin_bounds_at_y(body, quartile, fallback_center=pos)
+            ax.hlines(quartile, line_min, line_max, color="#333333", linestyle="-.", linewidth=0.9, zorder=4)
+
+        if len(values) > 500:
+            point_idx = rng.choice(len(values), size=500, replace=False)
+            point_values = values[point_idx]
+        else:
+            point_values = values
+        jitter = rng.normal(loc=0.0, scale=0.035, size=len(point_values))
+        ax.scatter(
+            np.full(len(point_values), pos) + jitter,
+            point_values,
+            color="black",
+            alpha=0.18,
+            s=6,
+            linewidths=0.2,
+            edgecolors="black",
+            zorder=2,
+        )
+
+    ax.set_xticks(np.arange(1, len(neighbor_values) + 1))
+    ax.set_xticklabels([f"{k}-NN" for k in neighbor_values])
+    ax.set_ylim(0.0, 1.0)
+    ax.set_ylabel("neighbor overlap")
+    n_points = len(distributions[0])
+    n_points_latex = f"{n_points:,}".replace(",", r"{,}")
+    ax.set_title(
+        rf"Neighborhood preservation between $\mathcal{{S}}$ and $\mathcal{{Z}}$, "
+        rf"over $N={n_points_latex}$ points"
+    )
+    fig.tight_layout()
+    fig.savefig(output_dir / "neighborhood_preservation.pdf")
+    plt.close(fig)
+
+
+def violin_bounds_at_y(body, y_value: float, fallback_center: float) -> tuple[float, float]:
+    """Find the horizontal extent of a violin body at a given y-value.
+
+    Args:
+        body: Matplotlib violin body returned by ``Axes.violinplot``.
+        y_value: Vertical coordinate where the violin width should be measured.
+        fallback_center: Center x-position used if the polygon has no crossing.
+
+    Returns:
+        Minimum and maximum x-coordinates of the violin polygon at ``y_value``.
+    """
+    vertices = body.get_paths()[0].vertices
+    x_values = []
+    for start, stop in zip(vertices, np.roll(vertices, -1, axis=0)):
+        y0 = start[1]
+        y1 = stop[1]
+        if y0 == y1:
+            if np.isclose(y_value, y0):
+                x_values.extend([start[0], stop[0]])
+            continue
+        if min(y0, y1) <= y_value <= max(y0, y1):
+            fraction = (y_value - y0) / (y1 - y0)
+            x_values.append(start[0] + fraction * (stop[0] - start[0]))
+
+    if len(x_values) < 2:
+        return fallback_center, fallback_center
+
+    padding = 0.01
+    return min(x_values) + padding, max(x_values) - padding
 
 
 def plot_training_history(history: list[dict[str, float]], output_dir: Path) -> None:
     """Plot train and validation curves for the auxiliary losses."""
     epochs = np.asarray([row["epoch"] for row in history])
-    fig, axs = plt.subplots(2, 2, figsize=(11, 7), sharex=True)
+    fig, axs = plt.subplots(2, 3, figsize=(15, 7), sharex=True)
     specs = [
         ("loss", "Total loss"),
         ("dyn", "Latent dynamics MSE"),
+        ("dyn_rel", "Relative dynamics error (↓)"),
         ("rew", "Reward MSE"),
         ("var", "Variance penalty"),
     ]
@@ -521,7 +689,8 @@ def plot_training_history(history: list[dict[str, float]], output_dir: Path) -> 
         ax.set_yscale("log")
         ax.grid(alpha=0.25)
         ax.legend()
-
+    for ax in axs.ravel()[len(specs):]:
+        ax.axis("off")
     fig.tight_layout()
     fig.savefig(output_dir / "training_curves.pdf")
     plt.close(fig)
@@ -647,10 +816,10 @@ def main():
     """Train a Minari dynamics encoder from the command line."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--env", choices=DATASET.keys(), default="Swimmer")
-    parser.add_argument("--latent-dim", type=int, default=8)
+    parser.add_argument("--components", type=int, default=8)
     parser.add_argument("--hidden", type=int, default=256)
     parser.add_argument("--batch-size", type=int, default=1024)
-    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--alpha-reward", type=float, default=1.0)
     parser.add_argument("--beta-var", type=float, default=1.0)
@@ -658,8 +827,8 @@ def main():
     parser.add_argument("--force-download", action="store_true")
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--max-plot-points", type=int, default=20_000)
-    parser.add_argument("--max-neighborhood-points", type=int, default=2_000)
-    parser.add_argument("--neighbors", type=int, default=10)
+    parser.add_argument("--max-neighborhood-points", type=int, default=10_000)
+    parser.add_argument("--neighbor-values", type=int, nargs="+", default=[100, 200, 500, 1000])
     parser.add_argument(
         "--output-dir",
         type=Path,
@@ -669,6 +838,14 @@ def main():
 
     dataset_ids = DATASET[args.env]
     print(f"Using datasets: {dataset_ids}")
+
+    if args.env == 'HalfCheetah':
+        args.lr = 5e-5
+
+    output_dir = args.output_dir / f"{args.env}-v5" / "nn_encoder"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with (output_dir / "config.json").open("w") as f:
+        json.dump(vars(args), f, indent=2, sort_keys=True, default=str)
 
     datasets = load_minari_datasets(dataset_ids, force_download=args.force_download)
     transitions = flatten_transitions(datasets)
@@ -681,7 +858,7 @@ def main():
         act=transitions.act,
         rew=transitions.rew,
         next_obs=transitions.next_obs,
-        latent_dim=args.latent_dim,
+        latent_dim=args.components,
         hidden=args.hidden,
         batch_size=args.batch_size,
         epochs=args.epochs,
@@ -692,8 +869,6 @@ def main():
         device=args.device,
     )
 
-    output_dir = args.output_dir / f"{args.env}-v5" / "nn_encoder"
-    output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "dynamics_encoder.pkl"
 
     model = encoder.build_model().to(args.device)
@@ -705,13 +880,16 @@ def main():
         batch_size=args.batch_size,
     )
     obs_n = encoder.obs_scaler.transform(transitions.obs).astype(np.float32)
-    diagnostics[f"{args.neighbors}nn_preservation"] = neighborhood_preservation_score(
+    overlaps_by_k = neighborhood_preservation_overlaps(
         obs_n=obs_n,
         z=z,
         max_points=args.max_neighborhood_points,
-        n_neighbors=args.neighbors,
+        neighbor_values=args.neighbor_values,
         seed=args.seed,
     )
+
+    for n_neighbors, overlaps in overlaps_by_k.items():
+        diagnostics[f"{n_neighbors}nn_preservation"] = float(np.mean(overlaps))
 
     save_encoder(encoder, diagnostics, history, output_path)
     plot_training_history(history, output_dir)
@@ -726,6 +904,10 @@ def main():
         seed=args.seed,
     )
     plot_latent_spectrum(z, output_dir)
+    plot_neighborhood_preservation(
+        overlaps_by_k=overlaps_by_k,
+        output_dir=output_dir,
+    )
 
     print("Diagnostics:")
     for k, v in diagnostics.items():
