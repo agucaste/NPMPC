@@ -34,6 +34,21 @@ class MuJoCoStateWrapper(gym.Wrapper):
         self.unwrapped.set_state(qpos, qvel)
         return self.unwrapped._get_obs()
 
+    def get_vine_state(self):
+        """Return MuJoCo state and wrapper episode-time state for vine rewinds."""
+        return (
+            self.get_mujoco_state(),
+            getattr(self.env, "_elapsed_steps", None),
+        )
+
+    def set_vine_state(self, state):
+        """Restore MuJoCo state and wrapper episode-time state for vine rewinds."""
+        mujoco_state, elapsed_steps = state
+        obs = self.set_mujoco_state(mujoco_state)
+        if elapsed_steps is not None and hasattr(self.env, "_elapsed_steps"):
+            self.env._elapsed_steps = int(elapsed_steps)
+        return obs
+
     def step(self, action):
         """Clip the action before stepping so vector rollouts match MujocoSystem."""
         action = np.clip(action, self.action_space.low, self.action_space.high)
@@ -69,8 +84,8 @@ def reset_vine_envs_same_state(envs, seed=None):
     else:
         envs.reset(seed=[int(seed) + i for i in range(envs.num_envs)])
 
-    states = envs.call("get_mujoco_state")
-    obs = envs.call("set_mujoco_state", states[0])
+    states = envs.call("get_vine_state")
+    obs = envs.call("set_vine_state", states[0])
     return np.stack(obs), states[0]
 
 

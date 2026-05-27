@@ -16,6 +16,8 @@ defaults:
   policy_type: "mint"
   # Whether to collect refinement trajectories using parallel vine rollouts.
   use_vine_collection: True
+  # Whether ChainPolicy exploration executes the full max_bootstrap action payload in vine collection.
+  explore_with_max_bootstrap: True
   # Number of parallel environments to branch at each vine step.
   num_envs: 4
   # FAISS OpenMP threads per process. Keep low when running multiple jobs on a laptop.
@@ -87,11 +89,11 @@ Swimmer-v5:
   lambd: 2
   gamma: 0.9999  # See https://arxiv.org/pdf/2208.07587
   td_slack: 0.05
-  max_bootstrap: 3
+  max_bootstrap: 5
   policy_type: chain
   encoder:
     mode: path
-    path: "non_expert/minari/outputs/Swimmer-v5/nn_encoder_last/dynamics_encoder.pkl"
+    path: "non_expert/minari/outputs/Swimmer-v5/nn_encoder_5_steps/dynamics_encoder.pkl"
 
 HalfCheetah-v5:
   env_id: "HalfCheetah-v5"

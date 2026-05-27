@@ -419,7 +419,7 @@ def find_fixed_point_v5(
     """
     x = as_rows(x)
     bootstrap_costs = np.asarray(bootstrap_costs, dtype=float)
-    bootstrap_nexts = np.asarray(bootstrap_nexts, dtype=float)
+    bootstrap_nexts = np.asarray(bootstrap_nexts, dtype=np.float32)
 
     assert x.shape[0] > 0 and lambd > 0 and 0 < gamma < 1, "Invalid inputs"
     assert bootstrap_costs.ndim == 2, "bootstrap_costs must have shape (N, K)"

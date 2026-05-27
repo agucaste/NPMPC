@@ -368,8 +368,17 @@ class ChainPolicy(EncodedMINTPolicy):
     """Encoded MINT policy that executes precomputed greedy action chains."""
 
     def __init__(self, encoder, nx: int, nu: int, k: int = 1, lambd: float = 1.0):
-        """Initialize the encoded chain policy and its action queue."""
-        self.action_chains = []
+        """Initialize the encoded chain policy and its action queue.
+
+        Args:
+            encoder: Observation encoder used before nearest-neighbor queries.
+            nx: Encoded feature dimension.
+            nu: Action dimension.
+            k: Number of nearest neighbors used by the greedy MINT rule.
+            lambd: Distance penalty used in the MINT upper bound.
+        """
+        self.action_chains = np.empty((0, 0, nu), dtype=float)
+        self.chain_lengths = np.empty((0,), dtype=int)
         self._pending_actions = np.empty((0, nu), dtype=float)
         self._pending_action_idx = 0
         super().__init__(encoder=encoder, nx=nx, nu=nu, k=k, lambd=lambd)
@@ -379,17 +388,30 @@ class ChainPolicy(EncodedMINTPolicy):
         x: list | np.ndarray,
         u: list | np.ndarray,
         J: list | np.ndarray,
-        action_chains: list[np.ndarray],
+        action_chains: list[np.ndarray] | np.ndarray,
+        chain_lengths: list | np.ndarray | None = None,
     ):
-        """Add MINT data with aligned, pre-trimmed action chains."""
+        """Add MINT data with aligned action-chain payloads.
+
+        Args:
+            x: Encoded feature rows to add.
+            u: One-step actions aligned with ``x``.
+            J: Cost-to-go values aligned with ``x``.
+            action_chains: Full action-chain payloads aligned with the added
+                rows. Dense payloads should have shape ``(N, K, nu)``. A list
+                of pre-trimmed chains is also accepted for compatibility.
+            chain_lengths: Number of actions to execute from each row during
+                normal policy execution. If omitted, each provided chain is
+                treated as fully executable.
+        """
         old_size = self.size
         super().add_data(x, u, J)
 
         added = self.size - old_size
-        chains = self._format_action_chains(action_chains)
-        assert len(chains) == added, f"Expected {added} action chains, got {len(chains)}"
+        chains, lengths = self._format_action_chains(action_chains, chain_lengths)
+        assert chains.shape[0] == added, f"Expected {added} action chains, got {chains.shape[0]}"
 
-        self.action_chains.extend(chains)
+        self._append_action_chains(chains, lengths)
         self._check_chain_consistency()
 
     def set_data(
@@ -397,29 +419,44 @@ class ChainPolicy(EncodedMINTPolicy):
         x: list | np.ndarray,
         u: list | np.ndarray,
         J: list | np.ndarray,
-        action_chains: list[np.ndarray],
+        action_chains: list[np.ndarray] | np.ndarray,
+        chain_lengths: list | np.ndarray | None = None,
     ):
-        """Replace the policy dataset and aligned action chains."""
+        """Replace the policy dataset and aligned action-chain payloads.
+
+        Args:
+            x: Encoded feature rows for the new policy dataset.
+            u: One-step actions aligned with ``x``.
+            J: Cost-to-go values aligned with ``x``.
+            action_chains: Full stored action-chain payloads for each row.
+            chain_lengths: Normal execution length for each row. Passing this
+                lets the policy keep full payloads while executing only the
+                bootstrap-selected prefix unless ``full_chain=True`` is used.
+        """
         self.x.reset()
         self.u = np.empty((0, self.nu), dtype=float)
         self.J = np.empty((0,), dtype=float)
-        self.action_chains = []
+        self.action_chains = np.empty((0, 0, self.nu), dtype=float)
+        self.chain_lengths = np.empty((0,), dtype=int)
         self.reset_chain()
-        self.add_data(x, u, J, action_chains)
+        self.add_data(x, u, J, action_chains, chain_lengths)
 
     def remove_data(self, indices: list | np.ndarray):
-        """Remove rows from MINT data and aligned action chains."""
+        """Remove rows from MINT data and aligned action-chain payloads.
+
+        Args:
+            indices: Dataset row indices to remove. Matching rows are removed
+                from the dense stored chains and from their normal execution
+                lengths.
+        """
         indices = np.asarray(indices, dtype=np.int64).reshape(-1)
         if indices.size == 0:
             return
 
         indices = np.ascontiguousarray(np.unique(indices))
         super().remove_data(indices)
-        remove_set = set(indices.tolist())
-        self.action_chains = [
-            chain for i, chain in enumerate(self.action_chains)
-            if i not in remove_set
-        ]
+        self.action_chains = np.delete(self.action_chains, indices, axis=0)
+        self.chain_lengths = np.delete(self.chain_lengths, indices, axis=0)
         self.reset_chain()
         self._check_chain_consistency()
 
@@ -428,40 +465,137 @@ class ChainPolicy(EncodedMINTPolicy):
         self._pending_actions = np.empty((0, self.nu), dtype=float)
         self._pending_action_idx = 0
 
-    def make_step(self, xq: np.ndarray, w: str = 'equal', one_action: bool = False) -> np.ndarray:
-        """Return the next queued action or start a new greedy action chain."""
+    def make_step(
+        self,
+        xq: np.ndarray,
+        w: str = 'equal',
+        one_action: bool = False,
+        full_chain: bool = False,
+    ) -> np.ndarray:
+        """Return the next queued action or start a new greedy action chain.
+
+        Args:
+            xq: Query observation batch.
+            w: Weighting mode used only when ``one_action=True`` delegates to
+                the encoded MINT one-step policy.
+            one_action: If true, bypass open-loop chains and return a single
+                encoded MINT action.
+            full_chain: If true, a newly selected chain executes the full
+                stored payload. Otherwise it executes the bootstrap-selected
+                prefix stored in ``chain_lengths``.
+
+        Returns:
+            The next action with shape ``(1, nu)``.
+        """
         if one_action:
             return super().make_step(xq, w=w)
 
         if self._pending_action_idx >= len(self._pending_actions):
-            self._pending_actions = self.make_chain(xq)
+            self._pending_actions = self.make_chain(xq, full_chain=full_chain)
             self._pending_action_idx = 0
     
         u = self._pending_actions[self._pending_action_idx]
         self._pending_action_idx += 1
         return u.reshape(1, -1)
 
-    def make_chain(self, xq: np.ndarray) -> np.ndarray:
-        """Return a copy of the greedy action chain selected at the query observation."""
+    def make_chain(self, xq: np.ndarray, full_chain: bool = False) -> np.ndarray:
+        """Return the greedy action chain selected at the query observation.
+
+        Args:
+            xq: Query observation batch.
+            full_chain: If true, return all stored bootstrap actions for the
+                selected row. If false, return only the prefix selected by the
+                fixed-point bootstrap solve.
+
+        Returns:
+            A copy of the selected chain with shape ``(T, nu)``.
+        """
         zq = self.encoder.encode(xq)
         i = self.greedy_index(zq)
-        return self.action_chains[i].copy()
+        length = self.action_chains.shape[1] if full_chain else self.chain_lengths[i]
+        return self.action_chains[i, :length].copy()
 
-    def _format_action_chains(self, action_chains: list[np.ndarray]) -> list[np.ndarray]:
-        """Convert action chains to validated row arrays."""
-        chains = []
-        for chain in action_chains:
-            chain = np.asarray(chain, dtype=float).reshape(-1, self.nu)
-            assert chain.shape[0] >= 1, "Action chains must contain at least one action."
-            chains.append(chain)
-        return chains
+    def _format_action_chains(
+        self,
+        action_chains: list[np.ndarray] | np.ndarray,
+        chain_lengths: list | np.ndarray | None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Convert action-chain payloads and execution lengths to arrays.
+
+        Args:
+            action_chains: Dense full-chain payloads or a list of chain arrays.
+            chain_lengths: Optional normal execution lengths aligned with
+                ``action_chains``.
+
+        Returns:
+            Dense action-chain payloads and aligned normal execution lengths.
+        """
+        if isinstance(action_chains, np.ndarray) and action_chains.ndim == 3:
+            chains = np.asarray(action_chains, dtype=float)
+            assert chains.shape[2] == self.nu, f"Expected action dim {self.nu}, got {chains.shape[2]}"
+            assert chains.shape[1] >= 1, "Action chains must contain at least one action."
+            if chain_lengths is None:
+                lengths = np.full(chains.shape[0], chains.shape[1], dtype=int)
+            else:
+                lengths = np.asarray(chain_lengths, dtype=int).reshape(-1)
+        else:
+            chain_list = [
+                np.asarray(chain, dtype=float).reshape(-1, self.nu)
+                for chain in action_chains
+            ]
+            assert all(chain.shape[0] >= 1 for chain in chain_list), (
+                "Action chains must contain at least one action."
+            )
+            max_length = max(chain.shape[0] for chain in chain_list)
+            chains = np.zeros((len(chain_list), max_length, self.nu), dtype=float)
+            inferred_lengths = np.empty(len(chain_list), dtype=int)
+            for i, chain in enumerate(chain_list):
+                inferred_lengths[i] = chain.shape[0]
+                chains[i, :chain.shape[0]] = chain
+            lengths = inferred_lengths if chain_lengths is None else np.asarray(chain_lengths, dtype=int).reshape(-1)
+
+        assert lengths.shape[0] == chains.shape[0], (
+            f"Expected {chains.shape[0]} chain lengths, got {lengths.shape[0]}"
+        )
+        assert np.all(lengths >= 1), "Action chain lengths must be at least one."
+        assert np.all(lengths <= chains.shape[1]), "Action chain lengths cannot exceed stored chain length."
+        return chains, lengths
+
+    def _append_action_chains(self, chains: np.ndarray, lengths: np.ndarray):
+        """Append dense action-chain payloads while preserving row alignment.
+
+        Args:
+            chains: Dense action-chain payloads to append.
+            lengths: Normal execution lengths aligned with ``chains``.
+        """
+        if self.action_chains.shape[0] == 0:
+            self.action_chains = chains
+            self.chain_lengths = lengths
+            return
+
+        max_length = max(self.action_chains.shape[1], chains.shape[1])
+        if self.action_chains.shape[1] < max_length:
+            padded = np.zeros((self.action_chains.shape[0], max_length, self.nu), dtype=float)
+            padded[:, :self.action_chains.shape[1]] = self.action_chains
+            self.action_chains = padded
+        if chains.shape[1] < max_length:
+            padded = np.zeros((chains.shape[0], max_length, self.nu), dtype=float)
+            padded[:, :chains.shape[1]] = chains
+            chains = padded
+
+        self.action_chains = np.concatenate([self.action_chains, chains], axis=0)
+        self.chain_lengths = np.concatenate([self.chain_lengths, lengths], axis=0)
 
     def _check_chain_consistency(self):
         """Check that action chains stay aligned with MINT rows."""
-        assert len(self.action_chains) == self.size, (
-            f"FAISS index has {self.size} points, but action_chains has {len(self.action_chains)}"
+        assert self.action_chains.shape[0] == self.size, (
+            f"FAISS index has {self.size} points, but action_chains has {self.action_chains.shape[0]}"
         )
-        assert all(chain.shape[1] == self.nu for chain in self.action_chains), (
+        assert self.chain_lengths.shape[0] == self.size, (
+            f"FAISS index has {self.size} points, but chain_lengths has {self.chain_lengths.shape[0]}"
+        )
+        assert self.action_chains.ndim == 3, "action_chains must have shape (N, K, nu)."
+        assert self.action_chains.shape[2] == self.nu, (
             f"Each action chain must have action dim {self.nu}"
         )
 

@@ -74,7 +74,7 @@ class TorchDynamicsEncoder:
 
     def __post_init__(self) -> None:
         """Build the Torch model once so encode calls are cheap."""
-        from non_expert.minari.dynamics_encoder_model import DynamicsEncoder
+        from non_expert.minari.utils import DynamicsEncoder
 
         self._model = DynamicsEncoder(
             obs_dim=self.obs_dim,
@@ -106,15 +106,71 @@ class TorchDynamicsEncoder:
         return np.ascontiguousarray(z, dtype=np.float32)
 
 
+@dataclass
+class TorchAutoEncoder:
+    obs_scaler: object
+    model_state_dict: dict
+    obs_dim: int
+    latent_dim: int
+    hidden: int
+    path: Path
+    metadata: dict
+    name: str = "autoencoder"
+    _model: object = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        """Build the Torch model once so encode calls are cheap."""
+        from non_expert.minari.autoencoder import AutoEncoder
+
+        self._model = AutoEncoder(
+            obs_dim=self.obs_dim,
+            latent_dim=self.latent_dim,
+            hidden=self.hidden,
+        )
+        self._model.load_state_dict(self.model_state_dict)
+        self._model.eval()
+
+    @property
+    def input_dim(self) -> int:
+        """Return the raw observation dimension expected by the encoder."""
+        return int(self.obs_dim)
+
+    @property
+    def output_dim(self) -> int:
+        """Return the latent dimension produced by the encoder."""
+        return int(self.latent_dim)
+
+    def encode(self, obs: np.ndarray) -> np.ndarray:
+        """Encode one observation or a batch into frozen autoencoder latents."""
+        obs = np.asarray(obs, dtype=np.float32)
+        obs = obs.reshape(1, -1) if obs.ndim == 1 else obs
+        obs_n = self.obs_scaler.transform(obs).astype(np.float32)
+        with torch.no_grad():
+            x = torch.as_tensor(obs_n, dtype=torch.float32)
+            z = self._model.encode(x).cpu().numpy()
+        return np.ascontiguousarray(z, dtype=np.float32)
+
+
 def encode_trajectories(trajectories, encoder: ObservationEncoder):
-    """Encode trajectory observations while leaving controls and costs unchanged."""
+    """Encode trajectory observations as float32 features.
+
+    Args:
+        trajectories: Raw trajectories as ``(obs, actions, costs, next_obs)``
+            tuples.
+        encoder: Observation encoder that maps raw observations to features.
+
+    Returns:
+        Encoded trajectories as ``(Z, U, C, Z_next)`` tuples. ``Z`` and
+        ``Z_next`` are contiguous float32 arrays; controls and costs are left
+        unchanged.
+    """
     encoded = []
     for X, U, C, X_next in trajectories:
         encoded.append((
-            encoder.encode(X),
+            np.ascontiguousarray(encoder.encode(X), dtype=np.float32),
             U,
             C,
-            encoder.encode(X_next),
+            np.ascontiguousarray(encoder.encode(X_next), dtype=np.float32),
         ))
     return encoded
 
@@ -193,6 +249,26 @@ def _build_dynamics_encoder(path: Path, payload: dict) -> TorchDynamicsEncoder:
     )
 
 
+def _build_autoencoder(path: Path, payload: dict) -> TorchAutoEncoder:
+    """Build a Torch autoencoder from a loaded artifact payload."""
+    required = [
+        "obs_scaler",
+        "model_state_dict",
+        "obs_dim",
+        "latent_dim",
+        "hidden",
+    ]
+    missing = [name for name in required if name not in payload]
+    if missing:
+        raise ValueError(f"Missing autoencoder fields {missing} in artifact: {path}")
+
+    return TorchAutoEncoder(
+        **{name: payload[name] for name in required},
+        path=path,
+        metadata=_artifact_metadata(path, payload, set(required) | {"history"}),
+    )
+
+
 def load_pca_encoder(path: Path) -> SklearnPCAEncoder:
     """Load a PCA observation encoder artifact."""
     return _build_pca_encoder(path, _load_pickle(path))
@@ -203,6 +279,8 @@ def load_encoder(path: Path) -> ObservationEncoder:
     payload = _load_pickle(path)
     if "scaler" in payload and "pca" in payload:
         return _build_pca_encoder(path, payload)
+    if payload.get("type") == "autoencoder":
+        return _build_autoencoder(path, payload)
     if "encoder" in payload or "model_state_dict" in payload:
         return _build_dynamics_encoder(path, payload)
     raise ValueError(f"Unsupported encoder artifact format: {path}")
