@@ -21,7 +21,7 @@ defaults:
   # Number of parallel environments to branch at each vine step.
   num_envs: 4
   # FAISS OpenMP threads per process. Keep low when running multiple jobs on a laptop.
-  faiss_threads: 2
+  faiss_threads: 1
   # Query chunk size for dense distance reductions. Lower uses less RAM but runs slower.
   distance_batch_size: 2048
   # Compute empirical Lipschitz diagnostics every N iterations. Set <= 0 to disable.

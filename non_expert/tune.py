@@ -83,10 +83,10 @@ def make_pruner(name):
     if name == "none":
         return optuna.pruners.NopPruner()
     return optuna.pruners.MedianPruner(
-        n_startup_trials=1, #10,
-        n_warmup_steps=2, # 25,
-        interval_steps=1, #10,
-        n_min_trials=1 # 5,
+        n_startup_trials=10,
+        n_warmup_steps=25,
+        interval_steps=110,
+        n_min_trials=5,
     )
 
 
