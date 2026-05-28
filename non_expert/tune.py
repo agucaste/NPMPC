@@ -84,7 +84,7 @@ def make_pruner(name):
     return optuna.pruners.MedianPruner(
         n_startup_trials=10,
         n_warmup_steps=25,
-        interval_steps=110,
+        interval_steps=10,
         n_min_trials=5,
     )
 
