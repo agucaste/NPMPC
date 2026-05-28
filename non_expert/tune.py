@@ -24,11 +24,8 @@ def objective(trial, args):
     """
     config = load_mujoco_config(args.config_path, args.env_id)
 
-    policy_type = trial.suggest_categorical("policy_type", ["mint", "chain"])
-    # explore_with_max_bootstrap = trial.suggest_categorical(
-    #     "explore_with_max_bootstrap",
-    #     [False, True],
-    # )
+    # policy_type = trial.suggest_categorical("policy_type", ["mint", "chain"])
+    policy_type = "chain"
     explore_with_max_bootstrap = config.explore_with_max_bootstrap
     if policy_type == "mint":
         explore_with_max_bootstrap = False
@@ -36,11 +33,13 @@ def objective(trial, args):
     trial_seed = args.seed * 100_000 + trial.number
     config.recursive_update(
         {
+            # Random search over these parameters:
             "lambd": trial.suggest_float("lambd", 1, 100.0, log=True),
             "sigma": trial.suggest_float("sigma", 0.1, 3.0, log=True),
-            "td_slack": trial.suggest_float("td_slack", 0.1, 10.0, log=True),
+            "td_slack": trial.suggest_float("td_slack", 0.1, 1.0),
             "anneal_sigma": trial.suggest_categorical("anneal_sigma", [False, True]),
-            "gamma": trial.suggest_float("gamma", 0.90, 0.9999),
+            "gamma": trial.suggest_categorical("gamma", [0.99, 0.999]),
+            
             "policy_type": policy_type,
             "explore_with_max_bootstrap": explore_with_max_bootstrap,
             "seed": trial_seed,
