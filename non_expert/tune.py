@@ -25,25 +25,23 @@ def objective(trial, args):
     config = load_mujoco_config(args.config_path, args.env_id)
 
     policy_type = trial.suggest_categorical("policy_type", ["mint", "chain"])
-    explore_with_max_bootstrap = trial.suggest_categorical(
-        "explore_with_max_bootstrap",
-        [False, True],
-    )
+    # explore_with_max_bootstrap = trial.suggest_categorical(
+    #     "explore_with_max_bootstrap",
+    #     [False, True],
+    # )
+    explore_with_max_bootstrap = config.explore_with_max_bootstrap
     if policy_type == "mint":
         explore_with_max_bootstrap = False
 
     trial_seed = args.seed * 100_000 + trial.number
     config.recursive_update(
         {
-            "lambd": trial.suggest_float("lambd", 0.05, 10.0, log=True),
-            "sigma": trial.suggest_float("sigma", 0.01, 1.0, log=True),
-            "td_slack": trial.suggest_float("td_slack", 0.0, 10.0),
-            "max_bootstrap": trial.suggest_categorical("max_bootstrap", [1, 2, 3, 5, 8]),
-            "k": trial.suggest_categorical("k", [5, 10, 25, 50]),
-            "num_envs": trial.suggest_categorical("num_envs", [1, 2, 4, 8]),
-            "faiss_threads": trial.suggest_categorical("faiss_threads", [1, 2, 4]),
+            "lambd": trial.suggest_float("lambd", 1, 100.0, log=True),
+            "sigma": trial.suggest_float("sigma", 0.1, 3.0, log=True),
+            "td_slack": trial.suggest_float("td_slack", 0.1, 10.0, log=True),
+            "anneal_sigma": trial.suggest_categorical("anneal_sigma", [False, True]),
+            "gamma": trial.suggest_float("gamma", 0.90, 0.9999),
             "policy_type": policy_type,
-            "use_vine_collection": trial.suggest_categorical("use_vine_collection", [True]),
             "explore_with_max_bootstrap": explore_with_max_bootstrap,
             "seed": trial_seed,
             "save_plots": False,
@@ -85,10 +83,10 @@ def make_pruner(name):
     if name == "none":
         return optuna.pruners.NopPruner()
     return optuna.pruners.MedianPruner(
-        n_startup_trials=10,
-        n_warmup_steps=25,
-        interval_steps=5,
-        n_min_trials=5,
+        n_startup_trials=1, #10,
+        n_warmup_steps=2, # 25,
+        interval_steps=1, #10,
+        n_min_trials=1 # 5,
     )
 
 
