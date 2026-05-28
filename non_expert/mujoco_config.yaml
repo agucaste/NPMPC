@@ -53,6 +53,10 @@ defaults:
   encoder:
     mode: auto
     path:
+  # Plotting and logging stuff
+  plot_Q_values: True
+  save_dataset: True
+  save_plots: True
 
 InvertedPendulum-v5:
   env_id: "InvertedPendulum-v5"

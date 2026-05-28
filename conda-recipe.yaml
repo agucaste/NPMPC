@@ -22,3 +22,4 @@ dependencies:
   - wandb
   - rich
   - minari[hf,hdf5]
+  - optuna

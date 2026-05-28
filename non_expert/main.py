@@ -516,13 +516,501 @@ def load_mujoco_config(cfg_path, env_id):
     return config
 
 
+def train(config, trial=None, results_tag=None):
+    """Run one MuJoCo training experiment and return its scalar objective.
+
+    Args:
+        config: Experiment configuration with MuJoCo and MINT parameters.
+        trial: Optional Optuna trial used for intermediate reporting and pruning.
+        results_tag: Optional result directory tag. If omitted, a timestamped
+            seed tag is used to preserve command-line behavior.
+
+    Returns:
+        Maximum median evaluation return observed during the run.
+    """
+    env = None
+    vine_envs = None
+    logger = None
+    output_file = None
+    original_stdout = sys.stdout
+
+    try:
+        if getattr(config, "seed", None) is None:
+            config.recursive_update({"seed": random.randrange(0, 1000)})
+        seed_all(config.seed)
+        configure_faiss_threads(config.faiss_threads)
+
+        save_plots = config.save_plots
+        save_dataset = config.save_dataset
+        plot_Q_values_enabled = config.plot_Q_values
+
+        # Make folder to save results
+        path = os.path.dirname(os.path.abspath(__file__))
+        hms_time = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
+        if results_tag is None:
+            results_tag = f"seed-{config.seed}-{hms_time}"
+        results_path = os.path.join(
+            path,
+            "results",
+            "mujoco",
+            config.env_id,
+            results_tag,
+        )
+        os.makedirs(results_path, exist_ok=True)
+
+        # Redirect output to output.txt
+        output_file = open(os.path.join(results_path, "output.txt"), "w", encoding="utf-8")
+        sys.stdout = Tee(sys.stdout, output_file)
+
+        logger = Logger(
+            output_dir=results_path,
+            exp_name=f"{config.env_id}",
+            use_wandb=getattr(config, "use_wandb", False),
+            config=config,
+            wandb_name=getattr(
+                config,
+                "wandb_name",
+                f"{config.env_id}-seed-{config.seed}-{hms_time}",
+            ),
+        )
+        for key in [
+            "Train/Iteration",
+            "Data/NewSamples",
+            "Data/ImprovingPoints",
+            "Data/TDGap",
+            "Data/DatasetSize",
+            "Data/PrunedPoints",
+            "Data/LipschitzEmpirical",
+            "FixedPoint/Steps",
+            "Bootstrap/Average",
+            "Bootstrap/Median",
+            "Eval/MedianReturn",
+            "Time/Total",
+            "Time/Update",
+            "Time/Evaluate",
+        ]:
+            if key in {"Data/TDGap", "Bootstrap/Average", "Bootstrap/Median", "Eval/MedianReturn"}:
+                logger.register_key(key, display_format=".1f")
+            else:
+                logger.register_key(key)
+
+
+        env = gym.make(config.env_id)
+        env.action_space.seed(config.seed)
+        system = make_system(env)
+        if config.use_vine_collection:
+            if not isinstance(system, MujocoSystem):
+                raise ValueError("Vine collection requires a MuJoCo environment with settable state.")
+            vine_envs = make_vine_envs(config.env_id, config.num_envs, seed=config.seed)
+
+        project_root = Path(path).parent
+        encoder = load_observation_encoder(config, config.env_id, system.nx, project_root)
+        encoder_metadata = getattr(encoder, "metadata", {})
+        feature_dim = int(encoder.output_dim)
+        do_bootstrap = config.do_bootstrap
+        max_bootstrap = config.max_bootstrap
+        payload_bootstrap = max_bootstrap if do_bootstrap else 1
+        policy_cls = ChainPolicy if config.policy_type == "chain" else EncodedMINTPolicy
+        pi_mint = policy_cls(encoder=encoder, nx=feature_dim, nu=system.nu, k=config.k, lambd=config.lambd)
+        needs_action_payloads = isinstance(pi_mint, ChainPolicy)
+
+        def solve_Q(Z, bootstrap_costs, bootstrap_nexts, warm_Q=None):
+            """Solve for active-row Q values from dense bootstrap payloads."""
+            neighbors = config.k if do_bootstrap else None
+            Q, last_bootstraps, bootstrap_stats, fixed_point_steps = find_fixed_point_v5(
+                Z,
+                bootstrap_costs,
+                bootstrap_nexts,
+                gamma=config.gamma,
+                lambd=config.lambd,
+                tol=config.q_tol,
+                max_iter=config.q_iter,
+                warm_Q=warm_Q,
+                neighbors=neighbors,
+                batch_size=config.distance_batch_size,
+            )
+            if not do_bootstrap:
+                last_bootstraps = np.ones(len(Z), dtype=int)
+                bootstrap_stats = {"average": 1.0, "median": 1.0}
+                fixed_point_steps = None
+            return Q, last_bootstraps, bootstrap_stats, fixed_point_steps
+
+        def set_policy_data(policy, Z, U, Q, bootstrap_actions, last_bootstraps):
+            """Set policy data, including dense-payload chains for ChainPolicy."""
+            if isinstance(policy, ChainPolicy):
+                policy.set_data(Z, U, Q, bootstrap_actions, last_bootstraps)
+            else:
+                policy.set_data(Z, U, Q)
+
+        logger.log(f"Environment: {config.env_id}")
+        logger.log(f"Seed: {config.seed}")
+        logger.log(
+            f"Observation dim: {system.nx}, action dim: {system.nu}, full state dim: {system.state_dim}",
+        )
+        logger.log(
+            f"Encoder: {encoder.name}, feature dim: {feature_dim}, "
+            f"path: {encoder_metadata.get('path', '<identity>')}",
+        )
+        logger.log("MINT metric space: encoded observations")
+        logger.log(f"Policy type: {config.policy_type}")
+        logger.log(f"Explore with max bootstrap: {config.explore_with_max_bootstrap}")
+        logger.log(
+            f"Vine collection: {config.use_vine_collection}, "
+            f"num_envs: {config.num_envs if config.use_vine_collection else 0}",
+        )
+
+        experiment_start_time = time.time()
+
+        raw_trajectories = collect_trajectories(
+            system,
+            policy=None,
+            seed=config.seed,
+            num_trajectories=config.traj_per_iter,
+            max_steps=config.M,
+        )
+        encoded_trajectories = encode_trajectories(raw_trajectories, encoder)
+        Z, U, C, Z_next = flatten_trajectories(encoded_trajectories)
+        assert_feature_dim(Z, Z_next, feature_dim)
+        bootstrap_actions, bootstrap_costs, bootstrap_nexts = build_bootstrap_payloads(
+            encoded_trajectories,
+            action_dim=system.nu,
+            max_bootstrap=payload_bootstrap,
+            include_actions=needs_action_payloads,
+        )
+
+        update_start_time = time.time()
+        initial_samples = len(Z)
+        Q, last_bootstraps, bootstrap_stats, fixed_point_steps = solve_Q(
+            Z,
+            bootstrap_costs,
+            bootstrap_nexts,
+        )
+        set_policy_data(pi_mint, Z, U, Q, bootstrap_actions, last_bootstraps)
+        # distances = pi_mint.distances_to_dataset(Z, batch_size=config.distance_batch_size)
+        J_ub = pi_mint.J_upper_bound_knn(Z, batch_size=config.distance_batch_size)
+        Z, U, C, Z_next, bootstrap_actions, bootstrap_costs, bootstrap_nexts, Q, pruned, keep = prune_dataset(
+            Z,
+            U,
+            C,
+            Z_next,
+            bootstrap_actions,
+            bootstrap_costs,
+            bootstrap_nexts,
+            Q,
+            J_ub,
+        )
+        last_bootstraps = last_bootstraps[keep]
+
+        median_returns = np.zeros(config.episodes + 1)
+        dataset_sizes = np.zeros(config.episodes + 1)
+        improving_points = np.zeros(config.episodes + 1)
+        pruned_points = np.zeros(config.episodes + 1)
+        avg_bootstrap_steps = np.ones(config.episodes + 1)
+        median_bootstrap_steps = np.ones(config.episodes + 1)
+
+        set_policy_data(pi_mint, Z, U, Q, bootstrap_actions, last_bootstraps)
+
+        if plot_Q_values_enabled:
+            plot_Q_values(pi_mint, results_path, 0)
+
+        assert pi_mint.nx == feature_dim, f"Expected MINT feature dim {feature_dim}, got {pi_mint.nx}"
+        update_time = time.time() - update_start_time
+
+        evaluate_start_time = time.time()
+        eval_returns = evaluate_policy(system, pi_mint, config, seed_offset=config.seed + EVAL_SEED_OFFSET)
+        evaluate_time = time.time() - evaluate_start_time
+        median_returns[0] = np.median(eval_returns)
+        if trial is not None:
+            trial.report(float(median_returns[0]), step=0)
+            if trial.should_prune():
+                import optuna
+                raise optuna.TrialPruned()
+        dataset_sizes[0] = len(Z)
+        pruned_points[0] = pruned
+        avg_bootstrap_steps[0] = bootstrap_stats["average"]
+        median_bootstrap_steps[0] = bootstrap_stats["median"]
+        lipschitz_empirical = logged_lipschitz_constant(
+            0,
+            Z,
+            Q,
+            config.lipschitz_log_every,
+            previous=np.nan,
+            batch_size=config.distance_batch_size,
+        )
+        logger.store(
+            {
+                "Train/Iteration": 0,
+                "Data/NewSamples": initial_samples,
+                "Data/ImprovingPoints": np.nan,
+                "Data/TDGap": np.nan,
+                "Data/DatasetSize": len(Z),
+                "Data/PrunedPoints": pruned,
+                "Data/LipschitzEmpirical": lipschitz_empirical,
+                "FixedPoint/Steps": np.nan if fixed_point_steps is None else fixed_point_steps,
+                "Bootstrap/Average": bootstrap_stats["average"],
+                "Bootstrap/Median": bootstrap_stats["median"],
+                "Eval/MedianReturn": median_returns[0],
+                "Time/Total": time.time() - experiment_start_time,
+                "Time/Update": update_time,
+                "Time/Evaluate": evaluate_time,
+            },
+        )
+        logger.dump_tabular()
+
+        # Initialize sigma here (and anneal it if provided)
+        sigma = config.sigma
+
+        for t in range(1, config.episodes + 1):
+            if config.use_vine_collection and isinstance(pi_mint, ChainPolicy):
+                raw_new_trajectories = collect_trajectories_vine_chain(
+                    vine_envs,
+                    policy=pi_mint,
+                    encoder=encoder,
+                    config=config,
+                    sigma=sigma,
+                    seed=config.seed + t * config.traj_per_iter,
+                    num_trajectories=config.traj_per_iter,
+                    max_steps=config.M,
+                    full_chain=getattr(config, "explore_with_max_bootstrap", False),
+                )
+            elif config.use_vine_collection:
+                raw_new_trajectories = collect_trajectories_vine(
+                    vine_envs,
+                    policy=pi_mint,
+                    encoder=encoder,
+                    config=config,
+                    sigma=sigma,
+                    seed=config.seed + t * config.traj_per_iter,
+                    num_trajectories=config.traj_per_iter,
+                    max_steps=config.M,
+                )
+            else:
+                # Non-vine ChainPolicy collection intentionally ignores
+                # explore_with_max_bootstrap; full-chain exploration is only wired
+                # through vine-chain collection.
+                if isinstance(pi_mint, ChainPolicy) and getattr(config, "explore_with_max_bootstrap", False):
+                    print("Non-vine ChainPolicy collection ignores explore_with_max_bootstrap.")
+                raw_new_trajectories = collect_trajectories(
+                    system,
+                    policy=pi_mint,
+                    sigma=sigma,
+                    seed=config.seed + t * config.traj_per_iter,
+                    num_trajectories=config.traj_per_iter,
+                    max_steps=config.M,
+                )
+            encoded_new_trajectories = encode_trajectories(raw_new_trajectories, encoder)
+            Z_new, U_new, C_new, Z_next_new = flatten_trajectories(encoded_new_trajectories)
+            assert_feature_dim(Z_new, Z_next_new, feature_dim)
+            bootstrap_actions_new, bootstrap_costs_new, bootstrap_nexts_new = build_bootstrap_payloads(
+                encoded_new_trajectories,
+                action_dim=system.nu,
+                max_bootstrap=payload_bootstrap,
+                include_actions=needs_action_payloads,
+            )
+
+            update_start_time = time.time()
+            # distances_new = pi_mint.distances_to_dataset(Z_new, batch_size=config.distance_batch_size)
+            # distances_next_new = pi_mint.distances_to_dataset(Z_next_new, batch_size=config.distance_batch_size)
+            Q_new = pi_mint.J_upper_bound_knn(Z_new, batch_size=config.distance_batch_size)
+            if do_bootstrap:
+                TQ_new = optimistic_bootstrap_targets_from_payloads(
+                    bootstrap_costs_new,
+                    bootstrap_nexts_new,
+                    pi_mint,
+                    gamma=config.gamma,
+                    batch_size=config.distance_batch_size,
+                )
+            else:
+                TQ_new = C_new + config.gamma * pi_mint.J_upper_bound_knn(
+                    Z_next_new,
+                    batch_size=config.distance_batch_size,
+                )
+            improves = TQ_new + config.td_slack < Q_new
+            improving_points[t] = np.sum(improves)
+
+            gaps = Q_new - TQ_new
+            gaps_improving = gaps[improves]
+            td_gap_improving = gaps_improving.mean() if gaps_improving.size > 0 else 0
+            if gaps_improving.size > 0:
+                print(
+                    "Gaps over improving points: "
+                    f"min {gaps_improving.min():.1f}, "
+                    f"median {np.median(gaps_improving):.1f}, "
+                    f"mean {td_gap_improving:.1f}, "
+                    f"max {gaps_improving.max():.1f}",
+                )
+            else:
+                print("Gaps over improving points: n/a")
+
+            pruned = 0
+            fixed_point_steps = None
+            bootstrap_stats = {
+                "average": avg_bootstrap_steps[t - 1],
+                "median": median_bootstrap_steps[t - 1],
+            }
+            if np.any(improves):
+                Z = np.concatenate([Z, Z_new[improves]], axis=0)
+                U = np.concatenate([U, U_new[improves]], axis=0)
+                C = np.concatenate([C, C_new[improves]], axis=0)
+                Z_next = np.concatenate([Z_next, Z_next_new[improves]], axis=0)
+                if needs_action_payloads:
+                    bootstrap_actions = np.concatenate([bootstrap_actions, bootstrap_actions_new[improves]], axis=0)
+                bootstrap_costs = np.concatenate([bootstrap_costs, bootstrap_costs_new[improves]], axis=0)
+                bootstrap_nexts = np.concatenate([bootstrap_nexts, bootstrap_nexts_new[improves]], axis=0)
+                Q, last_bootstraps, bootstrap_stats, fixed_point_steps = solve_Q(
+                    Z,
+                    bootstrap_costs,
+                    bootstrap_nexts,
+                    warm_Q=Q,
+                )
+                # @TODO: Avoid rebuilding the full policy here and after pruning.
+                # An incremental path could add only improving rows, update Q and
+                # ChainPolicy chain lengths in place, then remove only pruned rows.
+                set_policy_data(pi_mint, Z, U, Q, bootstrap_actions, last_bootstraps)
+                # distances = pi_mint.distances_to_dataset(Z, batch_size=config.distance_batch_size)
+                J_ub = pi_mint.J_upper_bound_knn(Z, batch_size=config.distance_batch_size)
+                Z, U, C, Z_next, bootstrap_actions, bootstrap_costs, bootstrap_nexts, Q, pruned, keep = prune_dataset(
+                    Z,
+                    U,
+                    C,
+                    Z_next,
+                    bootstrap_actions,
+                    bootstrap_costs,
+                    bootstrap_nexts,
+                    Q,
+                    J_ub,
+                )
+                last_bootstraps = last_bootstraps[keep]
+
+                set_policy_data(pi_mint, Z, U, Q, bootstrap_actions, last_bootstraps)
+
+            if plot_Q_values_enabled and t % 50 == 0:
+                plot_Q_values(pi_mint, results_path, t)
+
+            update_time = time.time() - update_start_time
+
+            evaluate_start_time = time.time()
+            eval_returns = evaluate_policy(system, pi_mint, config, seed_offset=config.seed + EVAL_SEED_OFFSET)
+            evaluate_time = time.time() - evaluate_start_time
+            median_returns[t] = np.median(eval_returns)
+            if trial is not None:
+                trial.report(float(np.max(median_returns[:t+1])), step=t)
+                if trial.should_prune():
+                    import optuna
+                    raise optuna.TrialPruned()
+            dataset_sizes[t] = len(Z)
+            pruned_points[t] = pruned
+            avg_bootstrap_steps[t] = bootstrap_stats["average"]
+            median_bootstrap_steps[t] = bootstrap_stats["median"]
+            lipschitz_empirical = logged_lipschitz_constant(
+                t,
+                Z,
+                Q,
+                config.lipschitz_log_every,
+                previous=lipschitz_empirical,
+                batch_size=config.distance_batch_size,
+            )
+            logger.store(
+                {
+                    "Train/Iteration": t,
+                    "Data/NewSamples": len(Z_new),
+                    "Data/ImprovingPoints": int(improving_points[t]),
+                    "Data/TDGap": td_gap_improving,
+                    "Data/DatasetSize": len(Z),
+                    "Data/PrunedPoints": pruned,
+                    "Data/LipschitzEmpirical": lipschitz_empirical,
+                    "FixedPoint/Steps": np.nan if fixed_point_steps is None else fixed_point_steps,
+                    "Bootstrap/Average": bootstrap_stats["average"],
+                    "Bootstrap/Median": bootstrap_stats["median"],
+                    "Eval/MedianReturn": median_returns[t],
+                    "Time/Total": time.time() - experiment_start_time,
+                    "Time/Update": update_time,
+                    "Time/Evaluate": evaluate_time,
+                },
+            )
+            logger.dump_tabular()
+
+            if config.anneal_sigma:
+                sigma = sigma * (config.episodes - t) / (1 + config.episodes - t)  # Sigma_{t+1} = f(Sigma_t, t)
+
+        if save_plots:
+            episodes = np.arange(config.episodes + 1)
+            fig, axs = plt.subplots(1, 4, figsize=(24, 5))
+            axs[0].plot(episodes, median_returns)
+            axs[0].set_title("Median Return")
+            axs[0].set_xlabel("Episode")
+            axs[0].set_ylabel("Undiscounted Return")
+            axs[0].grid(alpha=0.5)
+
+            axs[1].plot(episodes, dataset_sizes)
+            axs[1].set_title("Dataset Size")
+            axs[1].set_xlabel("Episode")
+            axs[1].set_ylabel("Samples")
+            axs[1].grid(alpha=0.5)
+
+            axs[2].plot(episodes, avg_bootstrap_steps, label="Average")
+            axs[2].plot(episodes, median_bootstrap_steps, c='C0', linestyle='--', label="Median")
+            axs[2].set_title(f"N-step Bootstrapping statistics (max={max_bootstrap})")
+            axs[2].set_xlabel("Episode")
+            axs[2].set_ylabel("Bootstrap steps")
+            axs[2].grid(alpha=0.5)
+            # axs[2].legend(loc="upper left")
+            axs[2].legend()
+
+            axs[3].scatter(episodes, improving_points, marker='s', label="Improving points", color="C2")
+            # ax_counts.plot(episodes, pruned_points, "--", label="Pruned points", color="C3")
+            axs[3].set_xlabel("Episode")
+            axs[3].set_ylabel("Points")
+            axs[3].legend(loc="upper right")
+            axs[3].set_title("Improving points across iterations")
+            axs[3].grid(alpha=0.5)
+
+            plt.suptitle(f"MINT policy on {config.env_id}")
+
+            plt.tight_layout()
+            plt.savefig(os.path.join(results_path, f"{hms_time}_{config.env_id}_lambda{config.lambd}_sigma{config.sigma}.pdf"))
+            plt.close(fig)
+
+        if save_dataset:
+            np.savez(
+                os.path.join(results_path, "mujoco_results.npz"),
+                Z=Z,
+                U=U,
+                C=C,
+                Z_next=Z_next,
+                Q=Q,
+                median_values=median_returns,
+                dataset_sizes=dataset_sizes,
+                improving_points=improving_points,
+                pruned_points=pruned_points,
+                avg_bootstrap_steps=avg_bootstrap_steps,
+                median_bootstrap_steps=median_bootstrap_steps,
+                env_id=config.env_id,
+                encoder_name=encoder.name,
+                encoder_path=encoder_metadata.get("path", ""),
+                encoder_sha256=encoder_metadata.get("sha256", ""),
+                encoder_feature_dim=feature_dim,
+            )
+
+        return float(np.max(median_returns))
+    finally:
+        if vine_envs is not None:
+            vine_envs.close()
+        if env is not None:
+            env.close()
+        if logger is not None:
+            logger.close()
+        sys.stdout = original_stdout
+        if output_file is not None:
+            output_file.close()
+
+
 if __name__ == "__main__":
-    
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--lambd", type=float)
     parser.add_argument("--sigma", type=float)
-    parser.add_argument("--env-id", type=str, default='Swimmer-v5')
+    parser.add_argument("--env-id", type=str, default="Swimmer-v5")
     parser.add_argument("--faiss-threads", type=int)
     parser.add_argument("--policy-type", choices=["mint", "chain"])
     parser.add_argument("--num-envs", type=int)
@@ -532,458 +1020,14 @@ if __name__ == "__main__":
     parser.add_argument("--max-bootstrap", type=int)
     args = parser.parse_args()
 
-
-    # Name of the environment to be tested.
-    # env_id = args.env_id or "InvertedPendulum-v5"
     env_id = args.env_id
-
-    # Load configuration
     path = os.path.dirname(os.path.abspath(__file__))
     cfg_path = os.path.join(path, "mujoco_config.yaml")
     config = load_mujoco_config(cfg_path, env_id)
-    # Override with command-line arguments
     overrides = {
         key: value
         for key, value in vars(args).items()
         if value is not None
     }
     config.recursive_update(overrides)
-    config.recursive_update({"seed": random.randrange(0, 1000)})
-    seed_all(config.seed)
-
-    configure_faiss_threads(config.faiss_threads)
-
-    # Make folder to save results
-    hms_time = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
-    results_path = os.path.join(
-        path,
-        "results",
-        "mujoco",
-        env_id,
-        f"seed-{config.seed}-{hms_time}",
-    )
-    os.makedirs(results_path, exist_ok=True)
-
-    # Redirect output to output.txt
-    output_file = open(os.path.join(results_path, "output.txt"), "w", encoding="utf-8")
-    original_stdout = sys.stdout
-    sys.stdout = Tee(sys.stdout, output_file)
-
-    logger = Logger(
-        output_dir=results_path,
-        exp_name=f"{config.env_id}",
-        use_wandb=getattr(config, "use_wandb", False),
-        config=config,
-        wandb_name=f"{config.env_id}-seed-{config.seed}-{hms_time}",
-    )
-    for key in [
-        "Train/Iteration",
-        "Data/NewSamples",
-        "Data/ImprovingPoints",
-        "Data/TDGap",
-        "Data/DatasetSize",
-        "Data/PrunedPoints",
-        "Data/LipschitzEmpirical",
-        "FixedPoint/Steps",
-        "Bootstrap/Average",
-        "Bootstrap/Median",
-        "Eval/MedianReturn",
-        "Time/Total",
-        "Time/Update",
-        "Time/Evaluate",
-    ]:
-        if key in {"Data/TDGap", "Bootstrap/Average", "Bootstrap/Median", "Eval/MedianReturn"}:
-            logger.register_key(key, display_format=".1f")
-        else:
-            logger.register_key(key)
-
-
-    env = gym.make(config.env_id)
-    env.action_space.seed(config.seed)
-    system = make_system(env)
-    vine_envs = None
-    if config.use_vine_collection:
-        if not isinstance(system, MujocoSystem):
-            raise ValueError("Vine collection requires a MuJoCo environment with settable state.")
-        vine_envs = make_vine_envs(config.env_id, config.num_envs, seed=config.seed)
-
-    project_root = Path(path).parent
-    encoder = load_observation_encoder(config, config.env_id, system.nx, project_root)
-    encoder_metadata = getattr(encoder, "metadata", {})
-    feature_dim = int(encoder.output_dim)
-    do_bootstrap = config.do_bootstrap
-    max_bootstrap = config.max_bootstrap
-    payload_bootstrap = max_bootstrap if do_bootstrap else 1
-    policy_cls = ChainPolicy if config.policy_type == "chain" else EncodedMINTPolicy
-    pi_mint = policy_cls(encoder=encoder, nx=feature_dim, nu=system.nu, k=config.k, lambd=config.lambd)
-    needs_action_payloads = isinstance(pi_mint, ChainPolicy)
-
-    def solve_Q(Z, bootstrap_costs, bootstrap_nexts, warm_Q=None):
-        """Solve for active-row Q values from dense bootstrap payloads."""
-        neighbors = config.k if do_bootstrap else None
-        Q, last_bootstraps, bootstrap_stats, fixed_point_steps = find_fixed_point_v5(
-            Z,
-            bootstrap_costs,
-            bootstrap_nexts,
-            gamma=config.gamma,
-            lambd=config.lambd,
-            tol=config.q_tol,
-            max_iter=config.q_iter,
-            warm_Q=warm_Q,
-            neighbors=neighbors,
-            batch_size=config.distance_batch_size,
-        )
-        if not do_bootstrap:
-            last_bootstraps = np.ones(len(Z), dtype=int)
-            bootstrap_stats = {"average": 1.0, "median": 1.0}
-            fixed_point_steps = None
-        return Q, last_bootstraps, bootstrap_stats, fixed_point_steps
-
-    def set_policy_data(policy, Z, U, Q, bootstrap_actions, last_bootstraps):
-        """Set policy data, including dense-payload chains for ChainPolicy."""
-        if isinstance(policy, ChainPolicy):
-            policy.set_data(Z, U, Q, bootstrap_actions, last_bootstraps)
-        else:
-            policy.set_data(Z, U, Q)
-
-    logger.log(f"Environment: {config.env_id}")
-    logger.log(f"Seed: {config.seed}")
-    logger.log(
-        f"Observation dim: {system.nx}, action dim: {system.nu}, full state dim: {system.state_dim}",
-    )
-    logger.log(
-        f"Encoder: {encoder.name}, feature dim: {feature_dim}, "
-        f"path: {encoder_metadata.get('path', '<identity>')}",
-    )
-    logger.log("MINT metric space: encoded observations")
-    logger.log(f"Policy type: {config.policy_type}")
-    logger.log(f"Explore with max bootstrap: {config.explore_with_max_bootstrap}")
-    logger.log(
-        f"Vine collection: {config.use_vine_collection}, "
-        f"num_envs: {config.num_envs if config.use_vine_collection else 0}",
-    )
-
-    experiment_start_time = time.time()
-
-    raw_trajectories = collect_trajectories(
-        system,
-        policy=None,
-        seed=config.seed,
-        num_trajectories=config.traj_per_iter,
-        max_steps=config.M,
-    )
-    encoded_trajectories = encode_trajectories(raw_trajectories, encoder)
-    Z, U, C, Z_next = flatten_trajectories(encoded_trajectories)
-    assert_feature_dim(Z, Z_next, feature_dim)
-    bootstrap_actions, bootstrap_costs, bootstrap_nexts = build_bootstrap_payloads(
-        encoded_trajectories,
-        action_dim=system.nu,
-        max_bootstrap=payload_bootstrap,
-        include_actions=needs_action_payloads,
-    )
-
-    update_start_time = time.time()
-    initial_samples = len(Z)
-    Q, last_bootstraps, bootstrap_stats, fixed_point_steps = solve_Q(
-        Z,
-        bootstrap_costs,
-        bootstrap_nexts,
-    )
-    set_policy_data(pi_mint, Z, U, Q, bootstrap_actions, last_bootstraps)
-    # distances = pi_mint.distances_to_dataset(Z, batch_size=config.distance_batch_size)
-    J_ub = pi_mint.J_upper_bound_knn(Z, batch_size=config.distance_batch_size)
-    Z, U, C, Z_next, bootstrap_actions, bootstrap_costs, bootstrap_nexts, Q, pruned, keep = prune_dataset(
-        Z,
-        U,
-        C,
-        Z_next,
-        bootstrap_actions,
-        bootstrap_costs,
-        bootstrap_nexts,
-        Q,
-        J_ub,
-    )
-    last_bootstraps = last_bootstraps[keep]
-
-    median_returns = np.zeros(config.episodes + 1)
-    dataset_sizes = np.zeros(config.episodes + 1)
-    improving_points = np.zeros(config.episodes + 1)
-    pruned_points = np.zeros(config.episodes + 1)
-    avg_bootstrap_steps = np.ones(config.episodes + 1)
-    median_bootstrap_steps = np.ones(config.episodes + 1)
-
-    set_policy_data(pi_mint, Z, U, Q, bootstrap_actions, last_bootstraps)
-
-    plot_Q_values(pi_mint,results_path, 0)
-
-    assert pi_mint.nx == feature_dim, f"Expected MINT feature dim {feature_dim}, got {pi_mint.nx}"
-    update_time = time.time() - update_start_time
-
-    evaluate_start_time = time.time()
-    eval_returns = evaluate_policy(system, pi_mint, config, seed_offset=config.seed + EVAL_SEED_OFFSET)
-    evaluate_time = time.time() - evaluate_start_time
-    median_returns[0] = np.median(eval_returns)
-    dataset_sizes[0] = len(Z)
-    pruned_points[0] = pruned
-    avg_bootstrap_steps[0] = bootstrap_stats["average"]
-    median_bootstrap_steps[0] = bootstrap_stats["median"]
-    lipschitz_empirical = logged_lipschitz_constant(
-        0,
-        Z,
-        Q,
-        config.lipschitz_log_every,
-        previous=np.nan,
-        batch_size=config.distance_batch_size,
-    )
-    logger.store(
-        {
-            "Train/Iteration": 0,
-            "Data/NewSamples": initial_samples,
-            "Data/ImprovingPoints": np.nan,
-            "Data/TDGap": np.nan,
-            "Data/DatasetSize": len(Z),
-            "Data/PrunedPoints": pruned,
-            "Data/LipschitzEmpirical": lipschitz_empirical,
-            "FixedPoint/Steps": np.nan if fixed_point_steps is None else fixed_point_steps,
-            "Bootstrap/Average": bootstrap_stats["average"],
-            "Bootstrap/Median": bootstrap_stats["median"],
-            "Eval/MedianReturn": median_returns[0],
-            "Time/Total": time.time() - experiment_start_time,
-            "Time/Update": update_time,
-            "Time/Evaluate": evaluate_time,
-        },
-    )
-    logger.dump_tabular()
-
-    # Initialize sigma here (and anneal it if provided)
-    sigma = config.sigma
-
-    for t in range(1, config.episodes + 1):
-        if config.use_vine_collection and isinstance(pi_mint, ChainPolicy):
-            raw_new_trajectories = collect_trajectories_vine_chain(
-                vine_envs,
-                policy=pi_mint,
-                encoder=encoder,
-                config=config,
-                sigma=sigma,
-                seed=config.seed + t * config.traj_per_iter,
-                num_trajectories=config.traj_per_iter,
-                max_steps=config.M,
-                full_chain=getattr(config, "explore_with_max_bootstrap", False),
-            )
-        elif config.use_vine_collection:
-            raw_new_trajectories = collect_trajectories_vine(
-                vine_envs,
-                policy=pi_mint,
-                encoder=encoder,
-                config=config,
-                sigma=sigma,
-                seed=config.seed + t * config.traj_per_iter,
-                num_trajectories=config.traj_per_iter,
-                max_steps=config.M,
-            )
-        else:
-            # Non-vine ChainPolicy collection intentionally ignores
-            # explore_with_max_bootstrap; full-chain exploration is only wired
-            # through vine-chain collection.
-            if isinstance(pi_mint, ChainPolicy) and getattr(config, "explore_with_max_bootstrap", False):
-                print("Non-vine ChainPolicy collection ignores explore_with_max_bootstrap.")
-            raw_new_trajectories = collect_trajectories(
-                system,
-                policy=pi_mint,
-                sigma=sigma,
-                seed=config.seed + t * config.traj_per_iter,
-                num_trajectories=config.traj_per_iter,
-                max_steps=config.M,
-            )
-        encoded_new_trajectories = encode_trajectories(raw_new_trajectories, encoder)
-        Z_new, U_new, C_new, Z_next_new = flatten_trajectories(encoded_new_trajectories)
-        assert_feature_dim(Z_new, Z_next_new, feature_dim)
-        bootstrap_actions_new, bootstrap_costs_new, bootstrap_nexts_new = build_bootstrap_payloads(
-            encoded_new_trajectories,
-            action_dim=system.nu,
-            max_bootstrap=payload_bootstrap,
-            include_actions=needs_action_payloads,
-        )
-
-        update_start_time = time.time()
-        # distances_new = pi_mint.distances_to_dataset(Z_new, batch_size=config.distance_batch_size)
-        # distances_next_new = pi_mint.distances_to_dataset(Z_next_new, batch_size=config.distance_batch_size)
-        Q_new = pi_mint.J_upper_bound_knn(Z_new, batch_size=config.distance_batch_size)
-        if do_bootstrap:
-            TQ_new = optimistic_bootstrap_targets_from_payloads(
-                bootstrap_costs_new,
-                bootstrap_nexts_new,
-                pi_mint,
-                gamma=config.gamma,
-                batch_size=config.distance_batch_size,
-            )
-        else:
-            TQ_new = C_new + config.gamma * pi_mint.J_upper_bound_knn(
-                Z_next_new,
-                batch_size=config.distance_batch_size,
-            )
-        improves = TQ_new + config.td_slack < Q_new
-        improving_points[t] = np.sum(improves)
-
-        gaps = Q_new - TQ_new
-        gaps_improving = gaps[improves]
-        td_gap_improving = gaps_improving.mean() if gaps_improving.size > 0 else 0
-        if gaps_improving.size > 0:
-            print(
-                "Gaps over improving points: "
-                f"min {gaps_improving.min():.1f}, "
-                f"median {np.median(gaps_improving):.1f}, "
-                f"mean {td_gap_improving:.1f}, "
-                f"max {gaps_improving.max():.1f}",
-            )
-        else:
-            print("Gaps over improving points: n/a")
-
-        pruned = 0
-        fixed_point_steps = None
-        bootstrap_stats = {
-            "average": avg_bootstrap_steps[t - 1],
-            "median": median_bootstrap_steps[t - 1],
-        }
-        if np.any(improves):
-            Z = np.concatenate([Z, Z_new[improves]], axis=0)
-            U = np.concatenate([U, U_new[improves]], axis=0)
-            C = np.concatenate([C, C_new[improves]], axis=0)
-            Z_next = np.concatenate([Z_next, Z_next_new[improves]], axis=0)
-            if needs_action_payloads:
-                bootstrap_actions = np.concatenate([bootstrap_actions, bootstrap_actions_new[improves]], axis=0)
-            bootstrap_costs = np.concatenate([bootstrap_costs, bootstrap_costs_new[improves]], axis=0)
-            bootstrap_nexts = np.concatenate([bootstrap_nexts, bootstrap_nexts_new[improves]], axis=0)
-            Q, last_bootstraps, bootstrap_stats, fixed_point_steps = solve_Q(
-                Z,
-                bootstrap_costs,
-                bootstrap_nexts,
-                warm_Q=Q,
-            )
-            # @TODO: Avoid rebuilding the full policy here and after pruning.
-            # An incremental path could add only improving rows, update Q and
-            # ChainPolicy chain lengths in place, then remove only pruned rows.
-            set_policy_data(pi_mint, Z, U, Q, bootstrap_actions, last_bootstraps)
-            # distances = pi_mint.distances_to_dataset(Z, batch_size=config.distance_batch_size)
-            J_ub = pi_mint.J_upper_bound_knn(Z, batch_size=config.distance_batch_size)
-            Z, U, C, Z_next, bootstrap_actions, bootstrap_costs, bootstrap_nexts, Q, pruned, keep = prune_dataset(
-                Z,
-                U,
-                C,
-                Z_next,
-                bootstrap_actions,
-                bootstrap_costs,
-                bootstrap_nexts,
-                Q,
-                J_ub,
-            )
-            last_bootstraps = last_bootstraps[keep]
-
-            set_policy_data(pi_mint, Z, U, Q, bootstrap_actions, last_bootstraps)
-
-        if t % 50 == 0:
-            plot_Q_values(pi_mint,results_path, t)
-
-        update_time = time.time() - update_start_time
-
-        evaluate_start_time = time.time()
-        eval_returns = evaluate_policy(system, pi_mint, config, seed_offset=config.seed + EVAL_SEED_OFFSET)
-        evaluate_time = time.time() - evaluate_start_time
-        median_returns[t] = np.median(eval_returns)
-        dataset_sizes[t] = len(Z)
-        pruned_points[t] = pruned
-        avg_bootstrap_steps[t] = bootstrap_stats["average"]
-        median_bootstrap_steps[t] = bootstrap_stats["median"]
-        lipschitz_empirical = logged_lipschitz_constant(
-            t,
-            Z,
-            Q,
-            config.lipschitz_log_every,
-            previous=lipschitz_empirical,
-            batch_size=config.distance_batch_size,
-        )
-        logger.store(
-            {
-                "Train/Iteration": t,
-                "Data/NewSamples": len(Z_new),
-                "Data/ImprovingPoints": int(improving_points[t]),
-                "Data/TDGap": td_gap_improving,
-                "Data/DatasetSize": len(Z),
-                "Data/PrunedPoints": pruned,
-                "Data/LipschitzEmpirical": lipschitz_empirical,
-                "FixedPoint/Steps": np.nan if fixed_point_steps is None else fixed_point_steps,
-                "Bootstrap/Average": bootstrap_stats["average"],
-                "Bootstrap/Median": bootstrap_stats["median"],
-                "Eval/MedianReturn": median_returns[t],
-                "Time/Total": time.time() - experiment_start_time,
-                "Time/Update": update_time,
-                "Time/Evaluate": evaluate_time,
-            },
-        )
-        logger.dump_tabular()
-
-        if config.anneal_sigma:
-            sigma = sigma * (config.episodes - t) / (1 + config.episodes - t)  # Sigma_{t+1} = f(Sigma_t, t)
-
-    episodes = np.arange(config.episodes + 1)
-    fig, axs = plt.subplots(1, 4, figsize=(24, 5))
-    axs[0].plot(episodes, median_returns)
-    axs[0].set_title("Median Return")
-    axs[0].set_xlabel("Episode")
-    axs[0].set_ylabel("Undiscounted Return")
-    axs[0].grid(alpha=0.5)
-
-    axs[1].plot(episodes, dataset_sizes)
-    axs[1].set_title("Dataset Size")
-    axs[1].set_xlabel("Episode")
-    axs[1].set_ylabel("Samples")
-    axs[1].grid(alpha=0.5)
-
-    axs[2].plot(episodes, avg_bootstrap_steps, label="Average")
-    axs[2].plot(episodes, median_bootstrap_steps, c='C0', linestyle='--', label="Median")
-    axs[2].set_title(f"N-step Bootstrapping statistics (max={max_bootstrap})")
-    axs[2].set_xlabel("Episode")
-    axs[2].set_ylabel("Bootstrap steps")
-    axs[2].grid(alpha=0.5)
-    # axs[2].legend(loc="upper left")
-    axs[2].legend()
-        
-    axs[3].scatter(episodes, improving_points, marker='s', label="Improving points", color="C2")
-    # ax_counts.plot(episodes, pruned_points, "--", label="Pruned points", color="C3")
-    axs[3].set_xlabel("Episode")
-    axs[3].set_ylabel("Points")
-    axs[3].legend(loc="upper right")
-    axs[3].set_title("Improving points across iterations")
-    axs[3].grid(alpha=0.5)
-
-    plt.suptitle(f"MINT policy on {config.env_id}")
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(results_path, f"{hms_time}_{config.env_id}_lambda{config.lambd}_sigma{config.sigma}.pdf"))
-
-    np.savez(
-        os.path.join(results_path, "mujoco_results.npz"),
-        Z=Z,
-        U=U,
-        C=C,
-        Z_next=Z_next,
-        Q=Q,
-        median_values=median_returns,
-        dataset_sizes=dataset_sizes,
-        improving_points=improving_points,
-        pruned_points=pruned_points,
-        avg_bootstrap_steps=avg_bootstrap_steps,
-        median_bootstrap_steps=median_bootstrap_steps,
-        env_id=config.env_id,
-        encoder_name=encoder.name,
-        encoder_path=encoder_metadata.get("path", ""),
-        encoder_sha256=encoder_metadata.get("sha256", ""),
-        encoder_feature_dim=feature_dim,
-    )
-    if vine_envs is not None:
-        vine_envs.close()
-    env.close()
-    logger.close()
-    sys.stdout = original_stdout
-    output_file.close()
+    train(config)
