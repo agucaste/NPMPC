@@ -1,4 +1,5 @@
 import argparse
+import time
 import optuna
 import random
 import sys
@@ -49,7 +50,6 @@ def objective(trial, args):
             "wandb_name": f"{args.study_name}-trial-{trial.number}-{args.env_id}",
         },
     )
-
     results_tag = f"trial-{trial.number}-seed-{trial_seed}"
     score = train(config, trial=trial, results_tag=results_tag)
     return float(score)
@@ -101,6 +101,7 @@ def parse_args():
     parser.add_argument("--pruner", choices=["none", "median"], default="median")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--num-workers-hint", type=int)
+    parser.add_argument("--init-study", action="store_true")
     return parser.parse_args()
 
 
@@ -148,6 +149,9 @@ def summarize_study(study):
 def main():
     """Create and optimize an Optuna study for non-expert MuJoCo training."""
     args = parse_args()
+    # hms_time = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
+    # args. study_name += f"-{hms_time}"
+    
 
     random.seed(args.seed)
     args.config_path = resolve_config_path(args.config_path)
@@ -171,6 +175,11 @@ def main():
         sampler=make_sampler(args.sampler, args.seed),
         pruner=make_pruner(args.pruner),
     )
+    if args.init_study:
+        print(f"Initialized study: {study.study_name}")
+        print(f"Storage: {args.storage}")
+        return
+
     study.optimize(lambda trial: objective(trial, args), n_trials=args.n_trials, n_jobs=1)
     summarize_study(study)
 
