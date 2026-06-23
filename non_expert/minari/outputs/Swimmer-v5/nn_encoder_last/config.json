@@ -1,0 +1,17 @@
+{
+  "alpha_reward": 1.0,
+  "batch_size": 1024,
+  "beta_var": 1.0,
+  "components": 8,
+  "device": "cpu",
+  "env": "Swimmer",
+  "epochs": 500,
+  "force_download": false,
+  "hidden": 256,
+  "lr": 0.0003,
+  "max_neighborhood_points": 2000,
+  "max_plot_points": 20000,
+  "neighbors": 10,
+  "output_dir": "/Users/agu/Documents/Pycharm/npmpc/non_expert/minari/outputs",
+  "seed": 0
+}
