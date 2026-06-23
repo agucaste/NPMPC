@@ -26,6 +26,10 @@ DATASET = {
         "mujoco/swimmer/medium-v0",
         "mujoco/swimmer/expert-v0",
     ),
+    "Hopper": (
+        "mujoco/hopper/medium-v0",
+        "mujoco/hopper/expert-v0",
+    ),
 }
 
 
@@ -380,8 +384,26 @@ def compute_k_step_batch_losses(
     rew_seq_b: torch.Tensor,
     alpha_reward: float,
     beta_var: float,
+    gamma: float = 1.0,
 ) -> dict[str, torch.Tensor]:
-    """Compute K-step latent rollout losses for one batch of windows."""
+    """Compute K-step latent rollout losses for one batch of windows.
+
+    Args:
+        model: Dynamics encoder with latent dynamics and reward heads.
+        obs_seq_b: Normalized observation windows with shape ``(B, K + 1, obs_dim)``.
+        act_seq_b: Normalized action windows with shape ``(B, K, act_dim)``.
+        rew_seq_b: Normalized reward windows with shape ``(B, K)``.
+        alpha_reward: Weight on the reward prediction loss.
+        beta_var: Weight on the latent variance penalty.
+        gamma: Per-step decay applied to dynamics and reward losses as
+            ``gamma ** step``. The first predicted step has weight 1.
+
+    Returns:
+        Total loss and component losses averaged over rollout steps.
+    """
+    if not 0.0 < gamma <= 1.0:
+        raise ValueError("gamma must be in (0, 1].")
+
     k_step = act_seq_b.shape[1]
     z_hat = model.encode(obs_seq_b[:, 0])
     var_loss = variance_loss(z_hat)
@@ -401,9 +423,10 @@ def compute_k_step_batch_losses(
 
         dyn_loss_k = torch.mean((z_next_hat - z_target) ** 2)
         baseline_k = torch.mean((z_prev_target - z_target) ** 2)
-        dyn_losses.append(dyn_loss_k)
+        step_weight = gamma**step
+        dyn_losses.append(step_weight * dyn_loss_k)
         dyn_rel_losses.append(dyn_loss_k / torch.clamp(baseline_k, min=1e-12))
-        rew_losses.append(torch.mean((r_pred - rew_seq_b[:, step]) ** 2))
+        rew_losses.append(step_weight * torch.mean((r_pred - rew_seq_b[:, step]) ** 2))
         z_hat = z_next_hat
 
     dyn_loss = torch.stack(dyn_losses).mean()
@@ -428,8 +451,22 @@ def evaluate_loader_losses(
     beta_var: float,
     device: str,
     k_step: int = 1,
+    gamma: float = 1.0,
 ) -> dict[str, float]:
-    """Average pretraining losses over a DataLoader."""
+    """Average pretraining losses over a DataLoader.
+
+    Args:
+        model: Dynamics encoder to evaluate.
+        loader: DataLoader over one-step transitions or K-step windows.
+        alpha_reward: Weight on reward prediction loss.
+        beta_var: Weight on latent variance penalty.
+        device: Torch device used for evaluation.
+        k_step: Number of rollout steps represented by each loader item.
+        gamma: Per-step decay for K-step dynamics and reward losses.
+
+    Returns:
+        Mean loss components across DataLoader batches.
+    """
     model.eval()
     totals = {"loss": 0.0, "dyn": 0.0, "dyn_rel": 0.0, "rew": 0.0, "var": 0.0}
     n_batches = 0
@@ -455,6 +492,7 @@ def evaluate_loader_losses(
                 rew_seq_b=rew_seq_b.to(device),
                 alpha_reward=alpha_reward,
                 beta_var=beta_var,
+                gamma=gamma,
             )
         for name, value in losses.items():
             totals[name] += float(value.item())
@@ -665,6 +703,7 @@ def plot_neighborhood_preservation(
     max_points: int | None = None,
     neighbor_values: list[int] | None = None,
     seed: int = 0,
+    filename_prefix: str = "",
 ) -> None:
     """Plot learned and PCA neighborhood-preservation overlap distributions."""
     import matplotlib.pyplot as plt
@@ -750,7 +789,7 @@ def plot_neighborhood_preservation(
 
     ax.set_xticks(positions)
     ax.set_xticklabels([f"{k}-NN" for k in neighbor_values])
-    ax.set_ylim(0.0, 1.0)
+    # ax.set_ylim(0.0, 1.0)
     ax.set_ylabel("neighbor overlap")
     n_points = len(distributions[0])
     n_points_latex = f"{n_points:,}".replace(",", r"{,}")
@@ -762,7 +801,100 @@ def plot_neighborhood_preservation(
             title += rf", latent dim={latent_dim}, PCA components={pca_components}"
     ax.set_title(title)
     fig.tight_layout()
-    fig.savefig(output_dir / "neighborhood_preservation.pdf")
+    fig.savefig(output_dir / f"{filename_prefix}neighborhood_preservation.pdf")
+    plt.close(fig)
+
+
+def plot_encoder_neighborhood_comparison(
+    left_overlaps_by_k: dict[int, np.ndarray],
+    right_overlaps_by_k: dict[int, np.ndarray],
+    output_dir: Path,
+    output_name: str,
+    left_label: str,
+    right_label: str,
+) -> None:
+    """Plot split violin neighborhood-preservation distributions for two encoders.
+
+    Args:
+        left_overlaps_by_k: Per-point overlap scores for the first encoder.
+        right_overlaps_by_k: Per-point overlap scores for the second encoder.
+        output_dir: Directory where the PDF should be written.
+        output_name: Output filename stem, without extension.
+        left_label: Legend label for the first encoder.
+        right_label: Legend label for the second encoder.
+    """
+    import matplotlib.pyplot as plt
+
+    neighbor_values = sorted(set(left_overlaps_by_k).intersection(right_overlaps_by_k))
+    if not neighbor_values:
+        return
+
+    left_distributions = [left_overlaps_by_k[k] for k in neighbor_values]
+    right_distributions = [right_overlaps_by_k[k] for k in neighbor_values]
+
+    fig, ax = plt.subplots(figsize=(9, 4.5))
+    positions = np.arange(1, len(neighbor_values) + 1)
+    left_parts = ax.violinplot(
+        left_distributions,
+        positions=positions,
+        showmeans=False,
+        showmedians=False,
+        showextrema=False,
+    )
+    format_split_violins(
+        left_parts["bodies"],
+        side="left",
+        facecolor="C0",
+        edgecolor="C0",
+    )
+
+    right_parts = ax.violinplot(
+        right_distributions,
+        positions=positions,
+        showmeans=False,
+        showmedians=False,
+        showextrema=False,
+    )
+    format_split_violins(
+        right_parts["bodies"],
+        side="right",
+        facecolor="C1",
+        edgecolor="C1",
+    )
+
+    rng = np.random.default_rng(0)
+    for pos, values, body in zip(positions, left_distributions, left_parts["bodies"]):
+        plot_split_violin_summary(
+            ax=ax,
+            values=values,
+            body=body,
+            position=pos,
+            side="left",
+            rng=rng,
+        )
+    for pos, values, body in zip(positions, right_distributions, right_parts["bodies"]):
+        plot_split_violin_summary(
+            ax=ax,
+            values=values,
+            body=body,
+            position=pos,
+            side="right",
+            rng=rng,
+        )
+
+    ax.legend(
+        [left_parts["bodies"][0], right_parts["bodies"][0]],
+        [left_label, right_label],
+    )
+    ax.set_xticks(positions)
+    ax.set_xticklabels([f"{k}-NN" for k in neighbor_values])
+    ax.set_ylim(0.0, 1.0)
+    ax.set_ylabel("neighbor overlap")
+    n_points = len(left_distributions[0])
+    n_points_latex = f"{n_points:,}".replace(",", r"{,}")
+    ax.set_title(rf"Neighborhood preservation over $N={n_points_latex}$ points")
+    fig.tight_layout()
+    fig.savefig(output_dir / f"{output_name}.pdf")
     plt.close(fig)
 
 
@@ -840,7 +972,11 @@ def violin_bounds_at_y(body, y_value: float, fallback_center: float) -> tuple[fl
     return min(x_values) + padding, max(x_values) - padding
 
 
-def plot_training_history(history: list[dict[str, float]], output_dir: Path) -> None:
+def plot_training_history(
+    history: list[dict[str, float]],
+    output_dir: Path,
+    filename_prefix: str = "",
+) -> None:
     """Plot train and validation curves for the auxiliary losses."""
     import matplotlib.pyplot as plt
 
@@ -865,7 +1001,7 @@ def plot_training_history(history: list[dict[str, float]], output_dir: Path) -> 
     for ax in axs.ravel()[len(specs):]:
         ax.axis("off")
     fig.tight_layout()
-    fig.savefig(output_dir / "training_curves.pdf")
+    fig.savefig(output_dir / f"{filename_prefix}training_curves.pdf")
     plt.close(fig)
 
 
@@ -878,6 +1014,7 @@ def plot_latent_scatter(
     output_dir: Path,
     max_points: int,
     seed: int,
+    filename_prefix: str = "",
 ) -> None:
     """Plot the first two latent coordinates with useful colorings."""
     import matplotlib.pyplot as plt
@@ -941,22 +1078,37 @@ def plot_latent_scatter(
 
     fig.suptitle("Latent space diagnostics")
     fig.tight_layout()
-    fig.savefig(output_dir / "latent_scatter.pdf")
+    fig.savefig(output_dir / f"{filename_prefix}latent_scatter.pdf")
     plt.close(fig)
 
 
-def plot_latent_spectrum(z: np.ndarray, output_dir: Path) -> None:
-    """Plot per-dimension latent standard deviations and covariance eigenvalues."""
+def plot_latent_spectrum(
+    z: np.ndarray,
+    output_dir: Path,
+    filename_prefix: str = "",
+) -> None:
+    """Plot per-dimension latent means with std bars and covariance eigenvalues."""
     import matplotlib.pyplot as plt
 
+    latent_mean = np.mean(z, axis=0)
     latent_std = np.std(z, axis=0)
     eigvals = np.linalg.eigvalsh(np.atleast_2d(np.cov(z, rowvar=False)))
 
     fig, axs = plt.subplots(1, 2, figsize=(11, 4))
-    axs[0].bar(np.arange(1, len(latent_std) + 1), latent_std)
-    axs[0].set_title("Latent coordinate std")
+    latent_dims = np.arange(1, len(latent_mean) + 1)
+    axs[0].bar(latent_dims, latent_mean)
+    axs[0].errorbar(
+        latent_dims,
+        latent_mean,
+        yerr=latent_std,
+        fmt="none",
+        ecolor="black",
+        elinewidth=1.0,
+        capsize=3,
+    )
+    axs[0].set_title("Latent coordinate mean +/- std")
     axs[0].set_xlabel("latent dimension")
-    axs[0].set_ylabel("std")
+    axs[0].set_ylabel("mean latent value")
 
     axs[1].plot(np.arange(1, len(eigvals) + 1), np.sort(eigvals)[::-1], marker="o")
     axs[1].set_title("Latent covariance spectrum")
@@ -965,7 +1117,7 @@ def plot_latent_spectrum(z: np.ndarray, output_dir: Path) -> None:
     axs[1].set_yscale("log")
 
     fig.tight_layout()
-    fig.savefig(output_dir / "latent_spectrum.pdf")
+    fig.savefig(output_dir / f"{filename_prefix}latent_spectrum.pdf")
     plt.close(fig)
 
 

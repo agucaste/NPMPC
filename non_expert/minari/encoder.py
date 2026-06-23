@@ -41,6 +41,7 @@ from non_expert.minari.utils import (
     neighborhood_preservation_overlaps,
     plot_latent_scatter,
     plot_latent_spectrum,
+    plot_encoder_neighborhood_comparison,
     plot_neighborhood_preservation,
     plot_training_history,
     save_encoder,
@@ -62,13 +63,40 @@ def train_encoder(
     seed: int,
     device: str,
     k_step: int = 1,
+    gamma: float = 1.0,
     obs_seq: np.ndarray | None = None,
     act_seq: np.ndarray | None = None,
     rew_seq: np.ndarray | None = None,
-) -> tuple[FrozenEncoder, dict, list[dict[str, float]]]:
-    """Train the dynamics encoder and collect validation diagnostics."""
+) -> tuple[FrozenEncoder, FrozenEncoder, dict, dict, list[dict[str, float]]]:
+    """Train the dynamics encoder and collect validation diagnostics.
+
+    Args:
+        obs: Flat raw observations at transition starts.
+        act: Flat raw actions aligned with ``obs``.
+        rew: Flat raw rewards aligned with ``obs``.
+        next_obs: Flat raw next observations.
+        latent_dim: Dimension of the learned latent representation.
+        hidden: Hidden width for the encoder and prediction heads.
+        batch_size: Number of examples per optimizer step.
+        epochs: Number of training epochs.
+        lr: AdamW learning rate.
+        alpha_reward: Weight on reward prediction loss.
+        beta_var: Weight on latent variance penalty.
+        seed: Random seed for train/validation split and PyTorch.
+        device: Torch device used for training.
+        k_step: Number of rollout steps to train over.
+        gamma: Per-step decay for K-step dynamics and reward losses.
+        obs_seq: Optional K-step observation windows.
+        act_seq: Optional K-step action windows.
+        rew_seq: Optional K-step reward windows.
+
+    Returns:
+        Last and best frozen encoders, their diagnostics, and training history.
+    """
     if k_step < 1:
         raise ValueError("k_step must be at least 1.")
+    if not 0.0 < gamma <= 1.0:
+        raise ValueError("gamma must be in (0, 1].")
     if k_step > 1 and (obs_seq is None or act_seq is None or rew_seq is None):
         raise ValueError("K-step training requires obs_seq, act_seq, and rew_seq.")
 
@@ -156,6 +184,9 @@ def train_encoder(
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     history = []
+    best_val_loss = float("inf")
+    best_epoch = 0
+    best_state_dict = None
 
     for epoch in range(1, epochs + 1):
         model.train()
@@ -183,6 +214,7 @@ def train_encoder(
                     rew_seq_b=rew_seq_b.to(device),
                     alpha_reward=alpha_reward,
                     beta_var=beta_var,
+                    gamma=gamma,
                 )
             loss = losses["loss"]
 
@@ -202,11 +234,16 @@ def train_encoder(
             beta_var=beta_var,
             device=device,
             k_step=k_step,
+            gamma=gamma,
         )
         row = {"epoch": float(epoch)}
         row.update({f"train_{name}": value for name, value in train_metrics.items()})
         row.update({f"val_{name}": value for name, value in val_metrics.items()})
         history.append(row)
+        if row["val_loss"] < best_val_loss:
+            best_val_loss = row["val_loss"]
+            best_epoch = epoch
+            best_state_dict = freeze_model_state_dict(model)
 
         print(
             f"epoch {epoch:03d} | "
@@ -218,10 +255,22 @@ def train_encoder(
             f"val_dyn_rel={row['val_dyn_rel']:.5f}"
         )
 
+    if best_state_dict is None:
+        best_state_dict = freeze_model_state_dict(model)
+
     payload = FrozenEncoder(
         obs_scaler=obs_scaler,
         act_scaler=act_scaler,
-        model_state_dict={k: v.cpu() for k, v in model.state_dict().items()},
+        model_state_dict=freeze_model_state_dict(model),
+        obs_dim=obs_dim,
+        act_dim=act_dim,
+        latent_dim=latent_dim,
+        hidden=hidden,
+    )
+    best_payload = FrozenEncoder(
+        obs_scaler=obs_scaler,
+        act_scaler=act_scaler,
+        model_state_dict=best_state_dict,
         obs_dim=obs_dim,
         act_dim=act_dim,
         latent_dim=latent_dim,
@@ -241,8 +290,39 @@ def train_encoder(
         device=device,
         seed=seed,
     )
+    diagnostics["best_val_loss"] = best_val_loss
+    diagnostics["best_epoch"] = float(best_epoch)
 
-    return payload, diagnostics, history
+    best_model = best_payload.build_model().to(device)
+    best_diagnostics = evaluate_encoder(
+        model=best_model,
+        obs_scaler=obs_scaler,
+        act_scaler=act_scaler,
+        rew_mean=rew_mean,
+        rew_std=rew_std,
+        obs=obs,
+        act=act,
+        rew=rew,
+        next_obs=next_obs,
+        device=device,
+        seed=seed,
+    )
+    best_diagnostics["best_val_loss"] = best_val_loss
+    best_diagnostics["best_epoch"] = float(best_epoch)
+
+    return payload, best_payload, diagnostics, best_diagnostics, history
+
+
+def freeze_model_state_dict(model: DynamicsEncoder) -> dict[str, torch.Tensor]:
+    """Copy a model state dict into CPU tensors safe for checkpointing.
+
+    Args:
+        model: Dynamics encoder whose state should be snapshotted.
+
+    Returns:
+        A detached CPU copy of the model state dictionary.
+    """
+    return {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
 
 
 def main():
@@ -252,11 +332,12 @@ def main():
     parser.add_argument("--components", type=int, default=8)
     parser.add_argument("--hidden", type=int, default=256)
     parser.add_argument("--batch-size", type=int, default=1024)
-    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--epochs", type=int, default=500)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--alpha-reward", type=float, default=1.0)
     parser.add_argument("--beta-var", type=float, default=1.0)
-    parser.add_argument("--k-step", type=int, default=1)
+    parser.add_argument("--k-step", type=int, default=5)
+    parser.add_argument("--gamma", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--force-download", action="store_true")
     parser.add_argument("--device", default="cpu")
@@ -271,6 +352,8 @@ def main():
     args = parser.parse_args()
     if args.k_step < 1:
         raise ValueError("--k-step must be at least 1.")
+    if not 0.0 < args.gamma <= 1.0:
+        raise ValueError("--gamma must be in (0, 1].")
 
     dataset_ids = DATASET[args.env]
     print(f"Using datasets: {dataset_ids}")
@@ -294,7 +377,7 @@ def main():
     if k_step_windows is not None:
         print(f"{args.k_step}-step windows: {len(k_step_windows.obs_seq)}")
 
-    encoder, diagnostics, history = train_encoder(
+    encoder, best_encoder, diagnostics, best_diagnostics, history = train_encoder(
         obs=transitions.obs,
         act=transitions.act,
         rew=transitions.rew,
@@ -309,12 +392,14 @@ def main():
         seed=args.seed,
         device=args.device,
         k_step=args.k_step,
+        gamma=args.gamma,
         obs_seq=k_step_windows.obs_seq if k_step_windows is not None else None,
         act_seq=k_step_windows.act_seq if k_step_windows is not None else None,
         rew_seq=k_step_windows.rew_seq if k_step_windows is not None else None,
     )
 
     output_path = output_dir / "dynamics_encoder.pkl"
+    best_output_path = output_dir / "dynamics_encoder_best.pkl"
 
     model = encoder.build_model().to(args.device)
     z = encode_normalized_observations(
@@ -337,6 +422,26 @@ def main():
         diagnostics[f"{n_neighbors}nn_preservation"] = float(np.mean(overlaps))
 
     save_encoder(encoder, diagnostics, history, output_path)
+    best_model = best_encoder.build_model().to(args.device)
+    best_z = encode_normalized_observations(
+        model=best_model,
+        obs=transitions.obs,
+        obs_scaler=best_encoder.obs_scaler,
+        device=args.device,
+        batch_size=args.batch_size,
+    )
+    best_obs_n = best_encoder.obs_scaler.transform(transitions.obs).astype(np.float32)
+    best_overlaps_by_k = neighborhood_preservation_overlaps(
+        obs_n=best_obs_n,
+        z=best_z,
+        max_points=args.max_neighborhood_points,
+        neighbor_values=args.neighbor_values,
+        seed=args.seed,
+    )
+    for n_neighbors, overlaps in best_overlaps_by_k.items():
+        best_diagnostics[f"{n_neighbors}nn_preservation"] = float(np.mean(overlaps))
+
+    save_encoder(best_encoder, best_diagnostics, history, best_output_path)
     plot_training_history(history, output_dir)
     plot_latent_scatter(
         z=z,
@@ -358,12 +463,43 @@ def main():
         neighbor_values=args.neighbor_values,
         seed=args.seed,
     )
+    plot_latent_scatter(
+        z=best_z,
+        labels=transitions.dataset_labels,
+        episode_returns=transitions.episode_returns,
+        time_in_episode=transitions.time_in_episode,
+        dataset_ids=dataset_ids,
+        output_dir=output_dir,
+        max_points=args.max_plot_points,
+        seed=args.seed,
+        filename_prefix="best_",
+    )
+    plot_latent_spectrum(best_z, output_dir, filename_prefix="best_")
+    plot_neighborhood_preservation(
+        overlaps_by_k=best_overlaps_by_k,
+        output_dir=output_dir,
+        obs_n=best_obs_n,
+        z=best_z,
+        max_points=args.max_neighborhood_points,
+        neighbor_values=args.neighbor_values,
+        seed=args.seed,
+        filename_prefix="best_",
+    )
+    plot_encoder_neighborhood_comparison(
+        left_overlaps_by_k=overlaps_by_k,
+        right_overlaps_by_k=best_overlaps_by_k,
+        output_dir=output_dir,
+        output_name="best_vs_last_neighborhood",
+        left_label="last encoder",
+        right_label="best encoder",
+    )
 
     print("Diagnostics:")
     for k, v in diagnostics.items():
         print(f"  {k}: {v:.6g}")
 
     print(f"Saved frozen encoder to: {output_path}")
+    print(f"Saved best frozen encoder to: {best_output_path}")
     print(f"Saved visualizations to: {output_dir}")
 
 

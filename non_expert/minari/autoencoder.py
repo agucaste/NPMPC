@@ -27,10 +27,13 @@ from non_expert.minari.utils import (
     DATASET,
     MLP,
     encode_normalized_observations,
+    flatten_transitions,
     load_minari_datasets,
-    neighborhood_preservation_score,
+    neighborhood_preservation_overlaps,
+    plot_encoder_neighborhood_comparison,
     plot_latent_scatter,
     plot_latent_spectrum,
+    plot_neighborhood_preservation,
     sample_indices,
     variance_loss,
 )
@@ -100,49 +103,6 @@ class FrozenAutoEncoder:
         return z[0] if single else z
 
 
-@dataclass
-class ObservationData:
-    """Flat observation arrays plus labels for representation diagnostics."""
-
-    obs: np.ndarray
-    dataset_labels: np.ndarray
-    episode_returns: np.ndarray
-    time_in_episode: np.ndarray
-
-
-def flatten_observations(datasets: dict[str, object]) -> ObservationData:
-    """Flatten Minari episode observations into one observation table.
-
-    Args:
-        datasets: Mapping from Minari dataset id to loaded Minari dataset.
-
-    Returns:
-        Flat observations and per-observation metadata for diagnostics.
-    """
-    obs_list = []
-    dataset_label_list = []
-    episode_return_list = []
-    time_in_episode_list = []
-
-    for dataset_id, dataset in datasets.items():
-        for episode in dataset.iterate_episodes():
-            obs = np.asarray(episode.observations, dtype=np.float32)
-            rew = np.asarray(episode.rewards, dtype=np.float32)
-            episode_return = float(np.sum(rew))
-
-            obs_list.append(obs)
-            dataset_label_list.extend([dataset_id] * len(obs))
-            episode_return_list.extend([episode_return] * len(obs))
-            time_in_episode_list.extend(np.linspace(0.0, 1.0, len(obs), endpoint=True))
-
-    return ObservationData(
-        obs=np.concatenate(obs_list, axis=0),
-        dataset_labels=np.asarray(dataset_label_list),
-        episode_returns=np.asarray(episode_return_list, dtype=np.float32),
-        time_in_episode=np.asarray(time_in_episode_list, dtype=np.float32),
-    )
-
-
 def make_observation_loader(
     obs_n: np.ndarray,
     indices: np.ndarray,
@@ -208,7 +168,7 @@ def train_autoencoder(
     beta_var: float,
     seed: int,
     device: str,
-) -> tuple[FrozenAutoEncoder, dict, list[dict[str, float]]]:
+) -> tuple[FrozenAutoEncoder, FrozenAutoEncoder, dict, dict, list[dict[str, float]]]:
     """Train the autoencoder and collect validation diagnostics."""
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
@@ -241,6 +201,9 @@ def train_autoencoder(
     model = AutoEncoder(obs_dim=obs_dim, latent_dim=latent_dim, hidden=hidden).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     history = []
+    best_val_loss = float("inf")
+    best_epoch = 0
+    best_state_dict = None
 
     for epoch in range(1, epochs + 1):
         model.train()
@@ -274,6 +237,10 @@ def train_autoencoder(
         row.update({f"train_{name}": value for name, value in train_metrics.items()})
         row.update({f"val_{name}": value for name, value in val_metrics.items()})
         history.append(row)
+        if row["val_loss"] < best_val_loss:
+            best_val_loss = row["val_loss"]
+            best_epoch = epoch
+            best_state_dict = freeze_model_state_dict(model)
 
         print(
             f"epoch {epoch:03d} | "
@@ -283,9 +250,19 @@ def train_autoencoder(
             f"val_var={row['val_var']:.5f}"
         )
 
+    if best_state_dict is None:
+        best_state_dict = freeze_model_state_dict(model)
+
     payload = FrozenAutoEncoder(
         obs_scaler=obs_scaler,
-        model_state_dict={k: v.cpu() for k, v in model.state_dict().items()},
+        model_state_dict=freeze_model_state_dict(model),
+        obs_dim=obs_dim,
+        latent_dim=latent_dim,
+        hidden=hidden,
+    )
+    best_payload = FrozenAutoEncoder(
+        obs_scaler=obs_scaler,
+        model_state_dict=best_state_dict,
         obs_dim=obs_dim,
         latent_dim=latent_dim,
         hidden=hidden,
@@ -298,8 +275,33 @@ def train_autoencoder(
         device=device,
         seed=seed,
     )
+    diagnostics["best_val_loss"] = best_val_loss
+    diagnostics["best_epoch"] = float(best_epoch)
 
-    return payload, diagnostics, history
+    best_model = best_payload.build_model().to(device)
+    best_diagnostics = evaluate_autoencoder(
+        model=best_model,
+        obs_scaler=obs_scaler,
+        obs=obs,
+        device=device,
+        seed=seed,
+    )
+    best_diagnostics["best_val_loss"] = best_val_loss
+    best_diagnostics["best_epoch"] = float(best_epoch)
+
+    return payload, best_payload, diagnostics, best_diagnostics, history
+
+
+def freeze_model_state_dict(model: AutoEncoder) -> dict[str, torch.Tensor]:
+    """Copy an autoencoder state dict into CPU tensors for checkpointing.
+
+    Args:
+        model: Autoencoder whose parameters should be snapshotted.
+
+    Returns:
+        A detached CPU copy of the model state dictionary.
+    """
+    return {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
 
 
 @torch.no_grad()
@@ -381,8 +383,9 @@ def plot_reconstruction_quality(
     batch_size: int,
     max_points: int,
     seed: int,
+    filename_prefix: str = "",
 ) -> None:
-    """Plot raw-space reconstruction error and coordinate agreement."""
+    """Plot normalized raw-space reconstruction error and coordinate agreement."""
     import matplotlib.pyplot as plt
 
     model.eval()
@@ -400,11 +403,13 @@ def plot_reconstruction_quality(
     obs_hat_n = np.concatenate(chunks, axis=0)
     obs_hat_raw = obs_scaler.inverse_transform(obs_hat_n)
     reconstruction_errors = np.linalg.norm(obs_raw - obs_hat_raw, axis=1)
+    obs_norms = np.linalg.norm(obs_raw, axis=1)
+    normalized_reconstruction_errors = reconstruction_errors / np.maximum(obs_norms, 1e-12)
 
     fig, axs = plt.subplots(1, 2, figsize=(11, 4))
-    axs[0].hist(reconstruction_errors, bins=60, color="C0", alpha=0.9)
-    axs[0].set_title("Raw reconstruction error")
-    axs[0].set_xlabel("||s - s_hat||2")
+    axs[0].hist(normalized_reconstruction_errors, bins=60, color="C0", alpha=0.9)
+    axs[0].set_title("Normalized reconstruction error")
+    axs[0].set_xlabel("||s - s_hat||2 / ||s||2")
     axs[0].set_ylabel("count")
     axs[0].grid(alpha=0.25)
 
@@ -425,8 +430,14 @@ def plot_reconstruction_quality(
     axs[1].set_ylabel("reconstructed")
     axs[1].grid(alpha=0.25)
 
-    fig.tight_layout()
-    fig.savefig(output_dir / "reconstruction_quality.pdf")
+    n_sample = len(idx)
+    if n_sample == obs.shape[0]:
+        sample_text = f"N={n_sample:,} transitions"
+    else:
+        sample_text = f"N={n_sample:,} sampled transitions from {obs.shape[0]:,}"
+    fig.suptitle(f"Reconstruction diagnostics over {sample_text}")
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.92))
+    fig.savefig(output_dir / f"{filename_prefix}reconstruction_quality.pdf")
     plt.close(fig)
 
 
@@ -461,15 +472,15 @@ def main() -> None:
     parser.add_argument("--components", type=int, default=8)
     parser.add_argument("--hidden", type=int, default=256)
     parser.add_argument("--batch-size", type=int, default=1024)
-    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--epochs", type=int, default=500)
     parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--beta-var", type=float, default=0.0)
+    parser.add_argument("--beta-var", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--force-download", action="store_true")
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--max-plot-points", type=int, default=20_000)
     parser.add_argument("--max-neighborhood-points", type=int, default=10_000)
-    parser.add_argument("--neighbors", type=int, default=100)
+    parser.add_argument("--neighbor-values", type=int, nargs="+", default=[100, 200, 500, 1000])
     parser.add_argument(
         "--output-dir",
         type=Path,
@@ -486,13 +497,13 @@ def main() -> None:
         json.dump(vars(args), f, indent=2, sort_keys=True, default=str)
 
     datasets = load_minari_datasets(dataset_ids, force_download=args.force_download)
-    observations = flatten_observations(datasets)
+    transitions = flatten_transitions(datasets)
 
-    print(f"Observations: {len(observations.obs)}")
-    print(f"obs_dim={observations.obs.shape[1]}")
+    print(f"Transitions: {len(transitions.obs)}")
+    print(f"obs_dim={transitions.obs.shape[1]}, act_dim={transitions.act.shape[1]}")
 
-    autoencoder, diagnostics, history = train_autoencoder(
-        obs=observations.obs,
+    autoencoder, best_autoencoder, diagnostics, best_diagnostics, history = train_autoencoder(
+        obs=transitions.obs,
         latent_dim=args.components,
         hidden=args.hidden,
         batch_size=args.batch_size,
@@ -504,29 +515,52 @@ def main() -> None:
     )
 
     output_path = output_dir / "autoencoder.pkl"
+    best_output_path = output_dir / "autoencoder_best.pkl"
 
     model = autoencoder.build_model().to(args.device)
     z = encode_normalized_observations(
         model=model,
-        obs=observations.obs,
+        obs=transitions.obs,
         obs_scaler=autoencoder.obs_scaler,
         device=args.device,
         batch_size=args.batch_size,
     )
-    obs_n = autoencoder.obs_scaler.transform(observations.obs).astype(np.float32)
-    diagnostics[f"{args.neighbors}nn_preservation"] = neighborhood_preservation_score(
+    obs_n = autoencoder.obs_scaler.transform(transitions.obs).astype(np.float32)
+    overlaps_by_k = neighborhood_preservation_overlaps(
         obs_n=obs_n,
         z=z,
         max_points=args.max_neighborhood_points,
-        n_neighbors=args.neighbors,
+        neighbor_values=args.neighbor_values,
         seed=args.seed,
     )
+    for n_neighbors, overlaps in overlaps_by_k.items():
+        diagnostics[f"{n_neighbors}nn_preservation"] = float(np.mean(overlaps))
 
     save_autoencoder(autoencoder, diagnostics, history, output_path)
+    best_model = best_autoencoder.build_model().to(args.device)
+    best_z = encode_normalized_observations(
+        model=best_model,
+        obs=transitions.obs,
+        obs_scaler=best_autoencoder.obs_scaler,
+        device=args.device,
+        batch_size=args.batch_size,
+    )
+    best_obs_n = best_autoencoder.obs_scaler.transform(transitions.obs).astype(np.float32)
+    best_overlaps_by_k = neighborhood_preservation_overlaps(
+        obs_n=best_obs_n,
+        z=best_z,
+        max_points=args.max_neighborhood_points,
+        neighbor_values=args.neighbor_values,
+        seed=args.seed,
+    )
+    for n_neighbors, overlaps in best_overlaps_by_k.items():
+        best_diagnostics[f"{n_neighbors}nn_preservation"] = float(np.mean(overlaps))
+
+    save_autoencoder(best_autoencoder, best_diagnostics, history, best_output_path)
     plot_training_history(history, output_dir)
     plot_reconstruction_quality(
         model=model,
-        obs=observations.obs,
+        obs=transitions.obs,
         obs_scaler=autoencoder.obs_scaler,
         output_dir=output_dir,
         device=args.device,
@@ -536,21 +570,72 @@ def main() -> None:
     )
     plot_latent_scatter(
         z=z,
-        labels=observations.dataset_labels,
-        episode_returns=observations.episode_returns,
-        time_in_episode=observations.time_in_episode,
+        labels=transitions.dataset_labels,
+        episode_returns=transitions.episode_returns,
+        time_in_episode=transitions.time_in_episode,
         dataset_ids=dataset_ids,
         output_dir=output_dir,
         max_points=args.max_plot_points,
         seed=args.seed,
     )
     plot_latent_spectrum(z, output_dir)
+    plot_neighborhood_preservation(
+        overlaps_by_k=overlaps_by_k,
+        output_dir=output_dir,
+        obs_n=obs_n,
+        z=z,
+        max_points=args.max_neighborhood_points,
+        neighbor_values=args.neighbor_values,
+        seed=args.seed,
+    )
+    plot_reconstruction_quality(
+        model=best_model,
+        obs=transitions.obs,
+        obs_scaler=best_autoencoder.obs_scaler,
+        output_dir=output_dir,
+        device=args.device,
+        batch_size=args.batch_size,
+        max_points=args.max_plot_points,
+        seed=args.seed,
+        filename_prefix="best_",
+    )
+    plot_latent_scatter(
+        z=best_z,
+        labels=transitions.dataset_labels,
+        episode_returns=transitions.episode_returns,
+        time_in_episode=transitions.time_in_episode,
+        dataset_ids=dataset_ids,
+        output_dir=output_dir,
+        max_points=args.max_plot_points,
+        seed=args.seed,
+        filename_prefix="best_",
+    )
+    plot_latent_spectrum(best_z, output_dir, filename_prefix="best_")
+    plot_neighborhood_preservation(
+        overlaps_by_k=best_overlaps_by_k,
+        output_dir=output_dir,
+        obs_n=best_obs_n,
+        z=best_z,
+        max_points=args.max_neighborhood_points,
+        neighbor_values=args.neighbor_values,
+        seed=args.seed,
+        filename_prefix="best_",
+    )
+    plot_encoder_neighborhood_comparison(
+        left_overlaps_by_k=overlaps_by_k,
+        right_overlaps_by_k=best_overlaps_by_k,
+        output_dir=output_dir,
+        output_name="best_vs_last_neighborhood",
+        left_label="last autoencoder",
+        right_label="best autoencoder",
+    )
 
     print("Diagnostics:")
     for k, v in diagnostics.items():
         print(f"  {k}: {v:.6g}")
 
     print(f"Saved frozen autoencoder to: {output_path}")
+    print(f"Saved best frozen autoencoder to: {best_output_path}")
     print(f"Saved visualizations to: {output_dir}")
 
 

@@ -1,0 +1,15 @@
+{
+  "components": 8,
+  "env": "Hopper",
+  "force_download": false,
+  "max_neighborhood_points": 10000,
+  "max_plot_points": 20000,
+  "neighbor_values": [
+    100,
+    200,
+    500,
+    1000
+  ],
+  "output_dir": "/Users/agu/Documents/Pycharm/npmpc/non_expert/minari/outputs",
+  "seed": 0
+}
