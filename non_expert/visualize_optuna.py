@@ -10,10 +10,10 @@ from optuna.visualization import (
     plot_param_importances,
 )
 
-STUDY_NAME = "npmpc_swimmer_20260605_093446"
+STUDY_NAME = "npmpc_hopper_20260623_103500"
 STORAGE = "postgresql:///optuna_db?host=%2Fvar%2Frun%2Fpostgresql"
 
-OUTDIR = "optuna_figures"
+OUTDIR = "optuna_figures/" + STUDY_NAME
 os.makedirs(OUTDIR, exist_ok=True)
 
 study = optuna.load_study(
