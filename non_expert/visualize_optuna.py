@@ -1,5 +1,6 @@
 import os
 import optuna
+from optuna.trial import TrialState
 
 from optuna.visualization import (
     plot_optimization_history,
@@ -21,6 +22,11 @@ study = optuna.load_study(
     storage=STORAGE,
 )
 
+completed_trials = [
+    trial for trial in study.trials if trial.state == TrialState.COMPLETE
+]
+print(f"Completed trials: {len(completed_trials)} / {len(study.trials)}")
+
 plots = {
     "optimization_history": plot_optimization_history(study),
     "parallel_coordinate": plot_parallel_coordinate(study),
@@ -28,8 +34,15 @@ plots = {
     "contour_lambda_td_slack": plot_contour(study, params=["lambd", "td_slack"]),
     "slice": plot_slice(study),
     "rank": plot_rank(study),
-    "param_importances": plot_param_importances(study),
 }
+
+if len(completed_trials) >= 2:
+    plots["param_importances"] = plot_param_importances(study)
+else:
+    print(
+        "Skipping param_importances: Optuna needs at least two COMPLETE trials "
+        f"but found {len(completed_trials)}.",
+    )
 
 for name, fig in plots.items():
     fig.write_html(os.path.join(OUTDIR, f"{name}.html"))
